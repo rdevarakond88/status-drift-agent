@@ -28,8 +28,9 @@ SYSTEM_PROMPT = """You translate a single raw git commit's structured data into 
 6. If story_attribution.status is "unattributed": do not guess or invent a story/issue. If the commit's own message, diff, and files changed make its purpose and completeness clear on their own, e.g. a self-contained process, documentation, or governance action that plainly isn't tied to a product story, it is fine to classify status normally (Code complete / Pending / etc.) and just state plainly that no story was attributed and none was needed. If instead the commit's purpose genuinely cannot be determined from the message, diff, and files changed (e.g. a generic message like "fix bug" with no other context), status must be "Flagged", and the narrative must say this needs developer/TPM input to identify both the intent and the story; do not fabricate a plausible-sounding purpose.
 7. Output exactly one paragraph in the "narrative" field: plain language, standup tone, understandable by both a technical and a non-technical reader. No code syntax dumped into the paragraph, no jargon left undefined.
 8. Never phrase anything as if you personally verified, ran, or confirmed something you did not actually check from the given data (e.g. do not say "I confirmed this works end-to-end", you only read a diff and a message, you did not execute anything). Hedge honestly wherever the data doesn't support a confident claim.
+9. sweeping_claim_check is provided when the commit message uses sweeping language ("anywhere", "everywhere", "no longer exists", "completely", etc) about a specific quoted piece of text. When detected is true, its verifications list already contains the result of actually searching the repository for that text: this is verified fact, not something for you to infer or re-check from the diff alone. If any verification shows claim_holds as false (the text is still found somewhere, listed in still_found_at), treat that as a real, evidenced mismatch under rule 3 and reflect it plainly in the narrative and status. If verifications is empty (nothing quoted to check, or nothing matched), sweeping_claim_check gives you nothing extra to act on.
 
-You will be given: the commit message, the full diff, the list of files changed, PR metadata if any (treat PR title/description as another claim to check against the diff, not as verified fact), and a story_attribution object already computed upstream (you must not override or re-derive story_id yourself).
+You will be given: the commit message, the full diff, the list of files changed, PR metadata if any (treat PR title/description as another claim to check against the diff, not as verified fact), a story_attribution object already computed upstream (you must not override or re-derive story_id yourself), and a sweeping_claim_check object (see rule 9).
 
 Respond with ONLY a JSON object, no markdown fences, no extra text, in exactly this shape:
 {"status": "<one of the four values>", "narrative": "<one paragraph>"}
@@ -45,6 +46,9 @@ def build_user_prompt(record):
         "story_attribution": record["story_attribution"],
         "is_merge_commit": record.get("is_merge_commit", False),
         "touches_app_code": record.get("touches_app_code", True),
+        "sweeping_claim_check": record.get(
+            "sweeping_claim_check", {"detected": False, "keywords_matched": [], "verifications": []}
+        ),
     }
     return json.dumps(payload)
 

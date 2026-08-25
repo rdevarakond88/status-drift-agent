@@ -40,6 +40,59 @@ def compute_touches_app_code(files_changed):
     return any(Path(f).suffix.lower() in APP_CODE_EXTENSIONS for f in files_changed)
 
 
+# Fixed trigger list: commit-message language that claims something holds
+# across the whole codebase, not just in the lines the diff shows.
+SWEEPING_CLAIM_KEYWORDS = [
+    "anywhere",
+    "everywhere",
+    "no longer exists",
+    "no longer appears",
+    "completely",
+    "entirely",
+    "nowhere",
+    "all instances",
+]
+
+# A sweeping claim is only checkable if the message also quotes the
+# specific text being claimed absent (a URL, an error string, etc).
+QUOTED_TEXT_PATTERN = re.compile(r"['\"]([^'\"]{3,120})['\"]")
+
+
+def detect_sweeping_claims(commit_message):
+    lowered = commit_message.lower()
+    matched_keywords = [kw for kw in SWEEPING_CLAIM_KEYWORDS if kw in lowered]
+    claimed_texts = QUOTED_TEXT_PATTERN.findall(commit_message) if matched_keywords else []
+    return matched_keywords, claimed_texts
+
+
+def verify_claim_against_repo(repo, sha, claimed_text):
+    """Greps the repo tree as of sha (not just this commit's diff) for the
+    literal claimed text, so a claim about the whole codebase gets checked
+    against the whole codebase, not just what the diff happens to show."""
+    result = subprocess.run(
+        ["git", "-C", str(repo), "grep", "-n", "-F", claimed_text, sha],
+        capture_output=True, text=True,
+    )
+    still_found_at = [line for line in result.stdout.splitlines() if line]
+    return {
+        "claimed_text": claimed_text,
+        "still_found_at": still_found_at,
+        "claim_holds": len(still_found_at) == 0,
+    }
+
+
+def build_sweeping_claim_check(repo, sha, commit_message):
+    matched_keywords, claimed_texts = detect_sweeping_claims(commit_message)
+    if not matched_keywords:
+        return {"detected": False, "keywords_matched": [], "verifications": []}
+    verifications = [verify_claim_against_repo(repo, sha, text) for text in claimed_texts]
+    return {
+        "detected": True,
+        "keywords_matched": matched_keywords,
+        "verifications": verifications,
+    }
+
+
 def run_git(repo, *args):
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -146,6 +199,7 @@ def get_commit_record(repo, sha, branch, repo_slug):
         "pr_metadata": prs,
         "story_attribution": attribute_story(commit_message, branch, prs),
         "touches_app_code": compute_touches_app_code(files_changed),
+        "sweeping_claim_check": build_sweeping_claim_check(repo, sha, commit_message),
     }
 
 

@@ -21,7 +21,7 @@ FOLLOW_UP_QUESTION = (
 SYSTEM_PROMPT = """You translate a single raw git commit's structured data into a plain-language status update for a project-tracking tool. Follow these rules exactly: they are locked, non-negotiable constraints:
 
 1. status must be exactly one of: "Code complete", "Tested", "Pending", "Flagged". Never any other word, never a vague synonym like "done".
-2. Use "Tested" only if the commit message or diff explicitly confirms that necessary testing was actually performed and passed, not queued, not routed to a tester, not partially covered by an automated smoke check while a required verification step (e.g. on-device testing) is still explicitly outstanding. In every other case where the code itself looks complete and consistent with its claim, default to "Code complete".
+2. Use "Tested" only if the commit message or diff explicitly confirms that necessary testing was actually performed and passed, not queued, not routed to a tester, not partially covered by an automated smoke check while a required verification step (e.g. on-device testing) is still explicitly outstanding. In every other case where the code itself looks complete and consistent with its claim, default to "Code complete". Note: touches_app_code is provided and enforced separately in code; if it's false, "Tested" is not an available answer regardless of what you decide here, so don't bother reasoning toward it for a docs/logs/config-only commit.
 3. Compare every claim in the commit message and (if present) the PR title/description against the actual diff. If a claim is not supported by the diff (overstates scope, claims a fix the diff doesn't show, claims verification that isn't evidenced), state the mismatch as a plain fact. Do not guess or invent a reason why the mismatch exists. When a real mismatch exists, set status to "Flagged".
 4. (Handled automatically outside your output: ignore this rule, do not add anything about it yourself.)
 5. Do not estimate or output a percent-complete number based on diff size or your own impression. No acceptance-criteria data is being supplied to you in this run, so completion cannot be computed; do not attempt it or mention a percentage.
@@ -44,6 +44,7 @@ def build_user_prompt(record):
         "pr_metadata": record.get("pr_metadata", []),
         "story_attribution": record["story_attribution"],
         "is_merge_commit": record.get("is_merge_commit", False),
+        "touches_app_code": record.get("touches_app_code", True),
     }
     return json.dumps(payload)
 
@@ -78,6 +79,12 @@ def generate_status_update(record):
 
     narrative = parsed["narrative"]
     status = parsed["status"]
+
+    # Hard block: "Tested" is not an available answer for a commit that
+    # doesn't touch any real source file, no matter what the model (or the
+    # commit message) claims.
+    if status == "Tested" and not record.get("touches_app_code", True):
+        status = "Code complete"
 
     # Rule 4, enforced in code rather than trusted to the model.
     if status == "Code complete" and FOLLOW_UP_QUESTION.strip() not in narrative:

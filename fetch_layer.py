@@ -23,6 +23,22 @@ DEFAULT_CHECKPOINT_FILE = SCRIPT_DIR / "checkpoints.json"
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "output"
 STORY_PATTERN = re.compile(r"\b([DP]\d{1,2})\b")
 
+# Extensions treated as "real source" for touches_app_code. Anything else
+# (markdown, JSON/YAML/log files, etc) counts as docs/logs/config, not app code.
+APP_CODE_EXTENSIONS = {
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".go", ".rb", ".java", ".kt", ".swift",
+    ".c", ".cpp", ".h", ".hpp", ".rs", ".php",
+    ".css", ".scss", ".less", ".html", ".vue",
+    ".m", ".mm", ".sh", ".bash", ".sql",
+}
+
+
+def compute_touches_app_code(files_changed):
+    """True if any changed file is a real source file, False if the diff
+    only touches docs/logs/config."""
+    return any(Path(f).suffix.lower() in APP_CODE_EXTENSIONS for f in files_changed)
+
 
 def run_git(repo, *args):
     result = subprocess.run(
@@ -129,6 +145,7 @@ def get_commit_record(repo, sha, branch, repo_slug):
         "full_diff": full_diff,
         "pr_metadata": prs,
         "story_attribution": attribute_story(commit_message, branch, prs),
+        "touches_app_code": compute_touches_app_code(files_changed),
     }
 
 

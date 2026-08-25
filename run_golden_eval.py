@@ -20,7 +20,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from fetch_layer import get_commit_record, get_repo_slug  # noqa: E402
+from fetch_layer import get_commit_record, get_repo_slug, compute_touches_app_code  # noqa: E402
 from prompt_contract_layer import generate_status_update  # noqa: E402
 
 REPO = Path(os.environ.get("EVAL_TARGET_REPO", "/path/to/target-repo"))
@@ -62,6 +62,7 @@ def synthetic_record(commit_id, branch, commit_message, files_changed, full_diff
         "files_changed": files_changed,
         "full_diff": full_diff,
         "pr_metadata": [],
+        "touches_app_code": compute_touches_app_code(files_changed),
     }
 
 

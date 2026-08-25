@@ -1,6 +1,6 @@
 {
   "commit_id": "2dab6c7",
-  "plain_english_summary": "Not an app change — an audit of the internal agent-permission rules that closes two confirmed issues, corrects an earlier commit's wrong claim about how the rules work, and logs two new open questions that need a human decision rather than a code fix.",
+  "plain_english_summary": "Not an app change: an audit of the internal agent-permission rules that closes two confirmed issues, corrects an earlier commit's wrong claim about how the rules work, and logs two new open questions that need a human decision rather than a code fix.",
   "verified_status": "Pending",
-  "correct_agent_response": "Mixed status: two items (a missing permission entry, a stale doc header) were closed and verified in this commit — confirmed both directly in the diff. Two more items were logged as open, explicitly requiring a human policy decision, not a mechanical fix. Overall: Pending, since two of the four items this commit addresses are still unresolved and waiting on a person, not on more code."
+  "correct_agent_response": "Mixed status: two items (a missing permission entry, a stale doc header) were closed and verified in this commit; confirmed both directly in the diff. Two more items were logged as open, explicitly requiring a human policy decision, not a mechanical fix. Overall: Pending, since two of the four items this commit addresses are still unresolved and waiting on a person, not on more code."
 }

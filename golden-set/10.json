@@ -2,5 +2,5 @@
   "commit_id": "af0360e",
   "plain_english_summary": "Swapped the placeholder test names shown in the lookup mockup for different sample names. Cosmetic only.",
   "verified_status": "Code complete",
-  "correct_agent_response": "Code complete. Ten-line, single-file change to mock data constants only — no logic or layout affected."
+  "correct_agent_response": "Code complete. Ten-line, single-file change to mock data constants only, with no logic or layout affected."
 }

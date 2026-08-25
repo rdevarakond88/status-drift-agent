@@ -1,6 +1,6 @@
 {
   "commit_id": "a84d816",
-  "plain_english_summary": "Not an app change — undoes part of an earlier commit after discovering that commit's justification was factually wrong, then applies a narrower, correct fix in its place.",
+  "plain_english_summary": "Not an app change: undoes part of an earlier commit after discovering that commit's justification was factually wrong, then applies a narrower, correct fix in its place.",
   "verified_status": "Code complete",
-  "correct_agent_response": "Code complete. Independently checked the commit this one reverses (b9e0325) rather than trusting the claim at face value — it does show a legitimate prior use of the write access that the earlier commit had assumed was never used. The correction is real and well-founded, not just self-reported. Worth noting for context, not as a flag: this is the second time in this repo's history the same category of mistake occurred (trusting a written claim over checking git history directly) — a recurring pattern worth a status-translation agent recognizing, distinct from a one-off bug."
+  "correct_agent_response": "Code complete. Independently checked the commit this one reverses (b9e0325) rather than trusting the claim at face value: it does show a legitimate prior use of the write access that the earlier commit had assumed was never used. The correction is real and well-founded, not just self-reported. Worth noting for context, not as a flag: this is the second time in this repo's history the same category of mistake occurred (trusting a written claim over checking git history directly), a recurring pattern worth a status-translation agent recognizing, distinct from a one-off bug."
 }

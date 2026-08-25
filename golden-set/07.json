@@ -2,5 +2,5 @@
   "commit_id": "52fb363",
   "plain_english_summary": "When a patient is found, the result card now also shows the date of their last visit under their name, in addition to just their name.",
   "verified_status": "Code complete",
-  "correct_agent_response": "Code complete. Small, single-file, additive UI change — confirmed no other behavior touched."
+  "correct_agent_response": "Code complete. Small, single-file, additive UI change. Confirmed no other behavior touched."
 }

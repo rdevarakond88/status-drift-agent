@@ -1,6 +1,6 @@
 {
   "commit_id": "synthetic-001",
-  "plain_english_summary": "Constructed example, not a real commit from the target repo — used to test how the status-translation agent handles a commit with almost no usable metadata: message is just 'fix bug,' branch is 'quick-fix,' no linked issue, no agent tag, no body.",
+  "plain_english_summary": "Constructed example, not a real commit from the target repo, used to test how the status-translation agent handles a commit with almost no usable metadata: message is just 'fix bug,' branch is 'quick-fix,' no linked issue, no agent tag, no body.",
   "verified_status": "Flagged",
-  "correct_agent_response": "Flagged for TPM triage. A code change is present (2 files, 14 lines) but nothing in the available metadata — message, branch name, issue link, tags — indicates what the change does or why. No story match should be attempted: guessing at intent from a diff alone risks misattributing the work to the wrong feature or bug. The correct response is to surface this as needing direct developer input to identify both what it fixes and which story it belongs to, rather than fabricating a plausible-sounding summary."
+  "correct_agent_response": "Flagged for TPM triage. A code change is present (2 files, 14 lines) but nothing in the available metadata (message, branch name, issue link, tags) indicates what the change does or why. No story match should be attempted: guessing at intent from a diff alone risks misattributing the work to the wrong feature or bug. The correct response is to surface this as needing direct developer input to identify both what it fixes and which story it belongs to, rather than fabricating a plausible-sounding summary."
 }

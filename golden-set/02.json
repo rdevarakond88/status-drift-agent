@@ -2,5 +2,5 @@
   "commit_id": "6a19a8f",
   "plain_english_summary": "The temporary internet address used to expose the local demo server was switched to a different free tunneling service, after the original plan (a paid custom domain) was rejected. The backend side of this switch is done and confirmed reachable; a matching change is still needed on the app's side before the switch is fully usable end-to-end.",
   "verified_status": "Pending",
-  "correct_agent_response": "Split status: the backend infrastructure change (tunnel script) is code complete and was verified end-to-end via curl. The corresponding front-end header change needed to actually route app traffic through the new tunnel without hitting a warning page has not been made yet — that work is explicitly queued as a separate next step. Overall status: Pending, since the switch isn't usable by the app until the front-end half lands."
+  "correct_agent_response": "Split status: the backend infrastructure change (tunnel script) is code complete and was verified end-to-end via curl. The corresponding front-end header change needed to actually route app traffic through the new tunnel without hitting a warning page has not been made yet; that work is explicitly queued as a separate next step. Overall status: Pending, since the switch isn't usable by the app until the front-end half lands."
 }

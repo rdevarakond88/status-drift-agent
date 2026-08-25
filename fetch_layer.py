@@ -158,7 +158,7 @@ def main():
             "stories": {},
         }
         save_checkpoints(checkpoint_path, checkpoints)
-        print(f"No checkpoint existed for branch '{branch}' — initialized at current HEAD "
+        print(f"No checkpoint existed for branch '{branch}': initialized at current HEAD "
               f"({head_sha[:7]}, via {ref}). No commits processed this run.")
         return
 
@@ -172,7 +172,7 @@ def main():
 
     if not new_shas:
         print(f"WARNING: checkpoint SHA {last_sha[:7]} is not an ancestor of {ref} "
-              f"({head_sha[:7]}) — branch history may have been rewritten (rebase/force-push). "
+              f"({head_sha[:7]}). Branch history may have been rewritten (rebase/force-push). "
               f"Checkpoint NOT advanced. Manual review recommended.")
         sys.exit(1)
 

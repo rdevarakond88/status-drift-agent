@@ -7,7 +7,7 @@ prompt_contract_layer, and writes results next to the golden answers for
 comparison.
 
 The 19 real entries were built and reviewed against a private repo not
-included here — only the golden-set descriptions and eval results are
+included here. Only the golden-set descriptions and eval results are
 public, not that repo's code. Point EVAL_TARGET_REPO at a local clone of
 your own target repo to reproduce this harness.
 """
@@ -42,7 +42,7 @@ REAL_COMMITS = {
     "11.json": ("9cfe9eb", "dev"),
     "12.json": ("aa4f769", "dev"),
     "13.json": ("2dab6c7", "dev"),
-    "14.json": ("cb66d392", "main"),  # PR #6 merge commit — the whole bundle as one diff
+    "14.json": ("cb66d392", "main"),  # PR #6 merge commit: the whole bundle as one diff
     "15.json": ("6aa36a6", "main"),
     "16.json": ("91b2e6e", "dev"),
     "17.json": ("afce46a", "dev"),
@@ -88,7 +88,7 @@ index 9a8b7c6..3d2e1f0 100644
 """,
     ),
     "21.json": synthetic_record(
-        "synthetic-002", "dev", "Fixed the sync bug — all edge cases handled now.",
+        "synthetic-002", "dev", "Fixed the sync bug, all edge cases handled now.",
         ["src/sync/syncWorker.ts"],
         """diff --git a/src/sync/syncWorker.ts b/src/sync/syncWorker.ts
 index 2b3c4d5..6e7f8a9 100644
@@ -115,11 +115,11 @@ index 2b3c4d5..6e7f8a9 100644
    item.status = 'synced';
  }
 
- // offline-queue draining (device regains connectivity) — unchanged, see drainOfflineQueue()
+ // offline-queue draining (device regains connectivity): unchanged, see drainOfflineQueue()
 """,
     ),
     "22.json": synthetic_record(
-        "synthetic-003", "dev", "Updated component per design spec — QA verified.",
+        "synthetic-003", "dev", "Updated component per design spec, QA verified.",
         ["src/screens/patient/ProfileScreen.tsx"],
         """diff --git a/src/screens/patient/ProfileScreen.tsx b/src/screens/patient/ProfileScreen.tsx
 index 4c5d6e7..8f9a0b1 100644

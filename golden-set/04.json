@@ -1,6 +1,6 @@
 {
   "commit_id": "56af773",
-  "plain_english_summary": "Added a brand-new screen for doctors: enter a patient's phone number, and the app shows either 'patient found' with a request-access option, or 'not found' with a retry/register path. This is a mockup — no real lookup happens yet, all data is hardcoded.",
+  "plain_english_summary": "Added a brand-new screen for doctors: enter a patient's phone number, and the app shows either 'patient found' with a request-access option, or 'not found' with a retry/register path. This is a mockup: no real lookup happens yet, all data is hardcoded.",
   "verified_status": "Code complete",
-  "correct_agent_response": "Code complete. New screen registered in the app's navigation, plus a small dev-only entry point added to an existing screen for testing. Confirmed via diff this is a static mockup only — no backend call is wired up, consistent with the commit's own description."
+  "correct_agent_response": "Code complete. New screen registered in the app's navigation, plus a small dev-only entry point added to an existing screen for testing. Confirmed via diff this is a static mockup only: no backend call is wired up, consistent with the commit's own description."
 }

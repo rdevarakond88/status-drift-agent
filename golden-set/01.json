@@ -2,5 +2,5 @@
   "commit_id": "fee9cd5",
   "plain_english_summary": "Doctor login was silently failing because the app's OTP calls were still pointed at an old, dead server address. This fix repoints those calls at the correct, currently-running server.",
   "verified_status": "Code complete",
-  "correct_agent_response": "Code complete. auth.ts now imports the shared API base URL instead of a hardcoded (and dead) server address — all four login-related functions (send code, verify code, verify patient code, refresh session) are affected. Small, single-purpose, two-file change."
+  "correct_agent_response": "Code complete. auth.ts now imports the shared API base URL instead of a hardcoded (and dead) server address. All four login-related functions (send code, verify code, verify patient code, refresh session) are affected. Small, single-purpose, two-file change."
 }

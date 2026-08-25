@@ -93,6 +93,34 @@ def build_sweeping_claim_check(repo, sha, commit_message):
     }
 
 
+def get_deleted_files(repo, sha, is_merge):
+    """Fully-deleted files in this commit's diff, using the same scope
+    (first-parent for merges) as the full diff itself."""
+    args = ["show", "--first-parent", "--format=", "--name-status", sha] if is_merge \
+        else ["show", "--format=", "--name-status", sha]
+    out = run_git(repo, *args)
+    deleted = []
+    for line in out.splitlines():
+        if line.startswith("D\t"):
+            deleted.append(line.split("\t", 1)[1])
+    return deleted
+
+
+def find_unexplained_deletions(deleted_files, commit_message):
+    """Deleted files whose name is never referenced anywhere in the commit
+    message. Without even naming the file, the message can't be explaining
+    why it's gone."""
+    lowered_message = commit_message.lower()
+    unexplained = []
+    for f in deleted_files:
+        name = Path(f).name.lower()
+        stem = Path(f).stem.lower()
+        if name in lowered_message or stem in lowered_message:
+            continue
+        unexplained.append(f)
+    return unexplained
+
+
 def run_git(repo, *args):
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -195,6 +223,7 @@ def get_commit_record(repo, sha, branch, repo_slug):
 
     prs = get_pr_metadata(repo_slug, sha)
     commit_message = (subject + "\n\n" + body).strip() if body else subject
+    deleted_files = get_deleted_files(repo, sha, is_merge)
 
     return {
         "commit_id": sha,
@@ -209,6 +238,7 @@ def get_commit_record(repo, sha, branch, repo_slug):
         "story_attribution": attribute_story(commit_message, branch, prs),
         "touches_app_code": compute_touches_app_code(files_changed),
         "sweeping_claim_check": build_sweeping_claim_check(repo, sha, commit_message),
+        "unexplained_deletions": find_unexplained_deletions(deleted_files, commit_message),
     }
 
 

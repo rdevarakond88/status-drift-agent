@@ -70,6 +70,8 @@ def synthetic_record(commit_id, branch, commit_message, files_changed, full_diff
         "pr_metadata": [],
         "touches_app_code": compute_touches_app_code(files_changed),
         "sweeping_claim_check": _synthetic_sweeping_claim_check(commit_message),
+        # none of the synthetic fixtures below delete a file entirely
+        "unexplained_deletions": [],
     }
 
 

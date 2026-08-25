@@ -19,13 +19,18 @@ than my own hand-labeled "correct" answer.
 
 ## The pipeline
 
-Three stages, currently split across two files:
+Four stages, currently split across three files:
 
 1. **Fetch** (`fetch_layer.py`): deterministic, no AI involved. Pulls new
-   commits off a branch since the last checkpoint, attaches PR metadata,
-   attributes each commit to a story/ticket ID if one can be found in the
-   message, branch name, or PR text, and writes everything out as JSONL.
-   Checkpointed so re-runs only process what's new.
+   commits off a branch since the last checkpoint, attaches PR metadata
+   (labeled as describing state at PR merge time, not this commit's own
+   point in time), attributes each commit to a story/ticket ID if one can
+   be found in the message, branch name, or PR text, computes whether the
+   diff touches any real source file at all, checks the commit message
+   against a fixed list of sweeping-claim keywords and verifies any
+   quoted claim against the actual repo tree, and flags file deletions the
+   message never explains. Writes everything out as JSONL. Checkpointed so
+   re-runs only process what's new.
 2. **AI** (`prompt_contract_layer.py`): takes one fetch-layer record and
    asks a model to compare the commit's own claims (message, diff, PR
    description) against what the diff actually shows, and produce a status
@@ -35,7 +40,13 @@ Three stages, currently split across two files:
    mechanical parts of the contract in code rather than trusting the model
    to self-police. Status must be one of exactly four allowed values, a
    locked follow-up question gets appended whenever status is "Code
-   complete," and malformed model output is rejected outright.
+   complete," "Tested" is hard-blocked when the diff never touched app
+   code, and malformed model output is rejected outright.
+4. **Status Consistency Validator** (`status_consistency_validator.py`):
+   a separate, AI-free pass over the model's own generated paragraph.
+   Scans it for a fixed list of "still outstanding" phrases and
+   auto-corrects the status word to "Pending" when one is present but the
+   status word doesn't already say so. Pure text matching, no model call.
 
 `run_golden_eval.py` is the harness that runs a hand-labeled golden set
 through the full pipeline and diffs the result against the expected answer.

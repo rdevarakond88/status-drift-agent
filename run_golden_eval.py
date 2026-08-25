@@ -27,6 +27,7 @@ from fetch_layer import (  # noqa: E402
     detect_sweeping_claims,
 )
 from prompt_contract_layer import generate_status_update  # noqa: E402
+from status_consistency_validator import validate_status  # noqa: E402
 
 REPO = Path(os.environ.get("EVAL_TARGET_REPO", "/path/to/target-repo"))
 GOLDEN_DIR = SCRIPT_DIR / "golden-set"
@@ -204,6 +205,14 @@ def main():
         print(f"[{gf.name}] calling model...", file=sys.stderr)
         try:
             output = generate_status_update(record)
+            original_status = output["status"]
+            corrected_status, matched = validate_status(original_status, output["narrative"])
+            if matched:
+                output["status"] = corrected_status
+                output["consistency_correction"] = {
+                    "original_status": original_status,
+                    "matched_phrases": matched,
+                }
         except Exception as e:
             output = {"commit_id": golden["commit_id"], "status": "ERROR", "narrative": str(e), "completion": None}
         results.append({"golden_file": gf.name, "golden": golden, "generated": output})

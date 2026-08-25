@@ -148,7 +148,16 @@ def get_pr_metadata(repo_slug, sha):
         return []
     prs = json.loads(result.stdout)
     return [
-        {"number": pr["number"], "title": pr["title"], "description": pr.get("body") or ""}
+        {
+            "number": pr["number"],
+            "title": pr["title"],
+            "description": pr.get("body") or "",
+            # A PR's title/description describe the aggregate state of the
+            # whole PR as of merge time, not this individual commit's own
+            # point in time. Kept explicit so it doesn't get read as if it
+            # describes this commit specifically.
+            "describes_state_as_of": "PR merge time, not this individual commit's own point in time",
+        }
         for pr in prs
     ]
 

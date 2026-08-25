@@ -1,0 +1,6 @@
+{
+  "commit_id": "9cfe9eb",
+  "plain_english_summary": "Not an app change — this rebuilt the internal automated rulebook that controls which AI development agent is allowed to touch which files, replacing a single check with a five-step process that runs at different points in every session.",
+  "verified_status": "Code complete",
+  "correct_agent_response": "Code complete. The commit message gives no rationale (title only, no body), so intent had to be confirmed independently: the diff shows the new hook scripts are wired into five distinct session lifecycle events in the settings file, matching the '5-phase' claim in the title. Not an application-facing change — affects the development workflow only, not anything a user of the app would see."
+}

@@ -1,0 +1,6 @@
+{
+  "commit_id": "b3383fa",
+  "plain_english_summary": "A previously added 'Upcoming Appointments' screen for patients was removed entirely — a clean, complete deletion with nothing left behind.",
+  "verified_status": "Flagged",
+  "correct_agent_response": "The deletion itself is clean and verified — confirmed via diff it's a pure 292-line removal, nothing partial or broken. Flagged: the commit gives no reason for the removal, and it was made outside the normal development process (missing the agent co-author trailer every surrounding commit has). A later commit documents that it happened after the fact but still doesn't explain why. Do not surface this as a routine cleanup until a developer confirms the intent behind removing the screen."
+}

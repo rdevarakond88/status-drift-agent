@@ -1,0 +1,6 @@
+{
+  "commit_id": "synthetic-003",
+  "plain_english_summary": "Constructed example, not a real commit from the target repo — tests template/boilerplate messaging. A UI component was updated to match a design spec change. The commit message also claims 'QA verified,' but no test files changed and no CI run is linked to this commit.",
+  "verified_status": "Flagged",
+  "correct_agent_response": "UI updated per design spec — code complete, consistent with the diff. 'QA verified' cannot be confirmed from the repo — no test changes or CI run associated with this commit. Flagged, not disputed: the code change looks right, but the QA claim is unverifiable from available data. Developer to confirm QA status directly."
+}

@@ -1,0 +1,6 @@
+{
+  "commit_id": "24ef723",
+  "plain_english_summary": "The the access-request button used to only appear after a patient was found. It's now always visible above the keypad, but greyed out and disabled until a patient is actually found.",
+  "verified_status": "Code complete",
+  "correct_agent_response": "Code complete. Confirmed in the diff: the button moved out of the conditional 'found' card into a persistent position, with disabled styling driven by lookup state. Matches the described behavior exactly."
+}

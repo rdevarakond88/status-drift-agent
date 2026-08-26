@@ -45,11 +45,11 @@ exactly what it does, but the consequence showed up immediately:
   "point[s] to a **follow-up** review step" - a routine, harmless note, not
   a sign this commit itself is incomplete. Flipped from correct to wrong.
 - Case 15 already didn't match (golden Flagged, model said Code complete
-  in v1). This run the model actually got the status right on its own
-  (Flagged, for a real unexplained deletion inside that commit that
-  unexplained_deletions also caught) - and then the validator's negated
-  "not a gap needing **follow-up**" match dragged it down to Pending
-  anyway, replacing one wrong answer with a different wrong answer.
+  in v1). This run the model got the status right on its own (Flagged),
+  though for a claim that turned out to be fabricated, not a real
+  unexplained_deletions catch: see the correction below. The validator's
+  negated "not a gap needing **follow-up**" match then dragged it down to
+  Pending anyway, replacing one wrong answer with a different wrong one.
 
 This isn't a bug in the implementation; it's the direct, predictable result
 of a fixed-keyword matcher with no negation handling, which is what was
@@ -94,24 +94,35 @@ None of the five changes directly address the actual documented gap here
 completion" - two of four items still open should roll up to Pending).
 That gap is still open; this round didn't attempt to close it.
 
-## Two new catches, not previously flagged at all
-
-Two entries that matched cleanly in v1 turned up genuinely new, real
-findings this round, unrelated to anything in the original 9 disagreements:
+## One new catch, confirmed and corrected; one claim that turned out false
 
 - **Case 11**: unexplained_deletions correctly caught a real, previously
   unflagged issue. This commit deletes an old hook script
-  (`check-agent-declared.sh`, confirmed via `git show`) and never mentions
-  the removal anywhere in its message. The golden label (Code complete)
-  predates this feature and doesn't account for it. The model's new
-  "Flagged" answer looks like the more defensible one; the golden label is
-  arguably the one that needs updating, similar to case 14.
-- **Case 15**: unexplained_deletions also fired here for a real deletion
-  inside that commit's diff (unrelated to the original dead-URL mismatch
-  the golden label was written around). It's a second, independent
-  confirmation the feature works on real repo history, though the
-  Status Consistency Validator's negation-blindness (above) then dragged
-  this one's final status to the wrong answer anyway.
+  (`check-agent-declared.sh`, confirmed via `git show --name-status`) and
+  the commit message is title-only with no body, never mentioning the
+  removal. The golden label (Code complete) predated this feature and
+  didn't account for it. Golden-set entry 11 has been corrected to
+  Flagged, same process as entry 14.
+- **Case 15, corrected**: an earlier version of this document claimed
+  unexplained_deletions had also fired here, on a "second, independent"
+  deletion inside that commit's diff. That was wrong, and it's worth
+  saying plainly why: I read the model's own narrative ("this commit's
+  message doesn't explain why it also deletes historical content") and
+  reported it as a confirmed finding without checking it against the
+  actual diff first. `git show --name-status` on this commit shows two
+  modified files and zero deletions. unexplained_deletions itself computed
+  an empty list for this record, exactly correctly; the model asserted a
+  deletion that never happened, and I passed that assertion along
+  uncritically instead of verifying it. That's precisely the failure mode
+  this whole project exists to catch, and it slipped through the review of
+  this project's own eval output. Entry 15's golden status is unaffected
+  (it was already Flagged, for the real "no longer appears" mismatch it
+  was written around), so no golden-set correction was needed there, but
+  the false claim itself is worth recording: a "Flagged" status can still
+  carry a partly-fabricated justification underneath it, and status-only
+  comparison against a golden label won't catch that. Verifying the
+  reasoning, not just the status word, is a real gap in how this eval
+  harness checks itself.
 
 ## What worked cleanly, no caveats
 

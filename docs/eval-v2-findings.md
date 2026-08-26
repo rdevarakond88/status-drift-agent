@@ -2,30 +2,59 @@
 
 Five changes went into the pipeline (touches_app_code hard block, sweeping-claim
 repo verification, PR merge-time labeling, the Status Consistency Validator,
-unexplained-deletion flagging), plus a correction to golden-set entry 14. This
-is an honest account of what the re-run against all 23 golden-set entries
-actually showed, not just the headline number.
+unexplained-deletion flagging), plus a correction to golden-set entry 14.
+A follow-up round then fixed the Status Consistency Validator's
+negation-blindness and corrected golden-set entry 11. This is an honest
+account of what re-running against all 23 golden-set entries actually
+showed at each step, not just the headline numbers.
 
 ## Pass rate
 
-**14/23**, unchanged from the v1 run. The number is flat, but which 14 match
-is substantially different: some targeted disagreements got fixed, and the
-run surfaced new problems, some caused by this round's changes and some by
-plain model variance run to run.
+First re-run (the five changes only): **14/23**, unchanged from v1 in
+headline number, but which 14 matched was substantially different: some
+targeted disagreements got fixed, and the run surfaced new problems, some
+caused by this round's changes and some by plain model variance run to run.
+
+Second re-run, after fixing the Status Consistency Validator's
+negation-blindness and correcting golden-set entry 11 (see below):
+**18/23**. Confirmed directly against this run's actual output:
+
+| Entry | Status | Notes |
+|---|---|---|
+| 04 | Code complete, matches | Not fixed by the negation guard itself (see below); this run's model output simply didn't repeat the ambiguous "follow-up review step" phrasing that caused it to flip last time. Model variance, not the fix. |
+| 15 | Code complete, still mismatched (golden Flagged) | The negation fix did its job (no more false "Pending" flip), but the model's own judgment this run also doesn't independently verify the underlying claim the golden label is about. See the correction below: an earlier version of this document wrongly credited unexplained_deletions with catching something here. |
+| 17 | Code complete, matches | Negation guard correctly suppressed "no outstanding code work." |
+| 18 | Code complete, matches | Negation guard correctly suppressed "no indication of any problems needing follow-up," which needed the widened 8-word lookback (the original 4-5 word suggestion would have missed it: "no" sits 6 words back). |
+
+Case 04 is worth being precise about: the negation fix does not fix it,
+because there was never a negation to detect there. Its "follow-up" mention
+("point to a follow-up review step") is a harmless, non-negated aside, a
+different false-positive shape than 15/17/18. It happened to come out
+correct on this run because the model didn't use that phrasing this time,
+which is model variance, not something this fix addresses. If that
+phrasing comes back on a future run, this entry would mis-flag again.
 
 ## The 7 entries asked about specifically
+
+This table is as of the **first** re-run (five changes only, before the
+negation fix). It's kept as-is for the historical record; see "Pass rate"
+above for what changed after the negation fix and the entry-11 correction.
 
 | Entry | Golden | Generated | Match | Why |
 |---|---|---|---|---|
 | 01 | Code complete | Code complete | **Yes** | PR merge-time labeling (change 3) worked as intended: the model no longer treats the PR's aggregate "verified end-to-end" claim as contradicting this earlier commit's own state. |
 | 02 | Pending | Pending | **Yes** | The model's own narrative said the front-end half "still needs" to land; the Status Consistency Validator (change 4) correctly caught that and corrected to Pending. |
 | 03 | Pending | Pending | **Yes** | Same mechanism as 01: no more false contradiction between this commit's "not yet device-tested" note and the bundling PR's aggregate claim. |
-| 13 | Pending | Flagged | **No** | Different disagreement than before, not fixed. See below. |
-| 14 | Flagged | Code complete | **No** | Regressed. The golden label is now correct (updated this round), but this specific re-run of the model didn't independently catch the OTP-claim mismatch it caught on the original run. See below. |
-| 17 | Code complete | Pending | **No** | New disagreement, not the same as before. The touches_app_code block did stop it from saying "Tested" (that part worked), but the Status Consistency Validator then mis-fired. See below. |
+| 13 | Pending | Flagged | **No** | Different disagreement than before, not fixed. See below. Still unfixed after the negation fix too; logged as an open item in disagreements.md rather than addressed. |
+| 14 | Flagged | Code complete | **No** | Regressed. The golden label is now correct (updated this round), but this specific re-run of the model didn't independently catch the OTP-claim mismatch it caught on the original run. See below. Still doesn't reproduce reliably as of the second re-run either. |
+| 17 | Code complete | Pending | **No at this point** | The touches_app_code block did stop it from saying "Tested" (that part worked), but the Status Consistency Validator then mis-fired on negated "outstanding." **Fixed by the negation guard**: matches as of the second re-run. |
 | 19 | Flagged | Flagged | **Yes** | unexplained_deletions (change 5) caught exactly the case it was built for: the deleted screen file is never named in the commit message. |
 
-**4 of 7 now match (01, 02, 03, 19). 3 still don't (13, 14, 17), for three different reasons below.**
+First re-run: 4 of 7 matched (01, 02, 03, 19). After the negation fix:
+**5 of 7 match (01, 02, 03, 17, 19). 13 and 14 remain open**, for the
+reasons in the sections below (13: a policy gap, not yet an AI-facing
+rule; 14: model variance on a complex bundled commit, not a systemic
+issue caused by any of the five changes).
 
 ## Root cause: the Status Consistency Validator is negation-blind
 
@@ -140,6 +169,27 @@ That gap is still open; this round didn't attempt to close it.
   the commit message itself, which is outside what was asked for), but
   the detection and repo-grep mechanics were unit-tested independently and
   work correctly.
+
+## Still open, untouched by this round
+
+Two entries mismatch consistently across both re-runs, for reasons none of
+the five changes or the negation fix targeted:
+
+- **Case 12** (golden Flagged, generated Tested): the code fix and its
+  testing claim both hold up, so "Tested" is a defensible read on its own
+  terms. What golden actually flags is a bundling-hygiene issue, an
+  unrelated draft write-up bundled into the same commit as the code fix.
+  Nothing in this round addresses bundling hygiene (disagreements.md
+  takeaway 4, still open).
+- **Case 22** (golden Flagged, generated Tested): a synthetic entry
+  designed to test whether the model treats a bare "QA verified" claim in
+  a commit message as credible with no corroborating evidence (no test
+  files changed, no CI run). It shouldn't; rule 3 asks for exactly this
+  kind of skepticism. Both re-runs call it "Tested" anyway. Worth a closer
+  look in a future session: whether the touches_app_code/sweeping-claim/
+  unexplained-deletions additions are diluting the model's adherence to
+  the original unverifiable-claim skepticism rule, or whether this is
+  independent variance.
 
 ## Also worth noting
 

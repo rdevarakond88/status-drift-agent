@@ -146,3 +146,26 @@ this convention exists or matters.
    cannot catch claims about repo-wide state that live outside the current
    diff (case 15). A future version might need multi-commit or working-tree
    context to close this gap.
+
+## Status of these takeaways (as of the v2 contract changes)
+
+Takeaways 2, 3, and 5 got direct fixes: see `docs/eval-v2-findings.md` for
+what changed (PR merge-time labeling, the touches_app_code hard block, and
+sweeping-claim repo verification) and how each held up on re-run.
+
+Takeaway 1 (partial/split completion should roll up to `Pending`) is still
+open. It's the reason case 13 still doesn't match the golden set after the
+v2 changes: the "worst-case-wins" logic that produced the golden label for
+case 13 (two of four items closed, two still open and waiting on a human
+decision, so overall status is `Pending`) has only ever existed as a
+convention in how the golden set itself was hand-authored. It was never
+written down as a rule the model is actually told to follow, so there's
+nothing in the contract instructing it to roll a commit's status up to the
+worst-case status among several sub-items it describes. Logging this here
+rather than fixing it now: it needs its own rule (something like "if the
+narrative describes multiple sub-items with different completion states,
+status must reflect the least-complete one"), and deserves its own pass
+rather than a rushed addition alongside other changes.
+
+Takeaway 4 (bundling-hygiene flagging, case 12 vs. 14) is also still open;
+none of the v2 changes targeted it.

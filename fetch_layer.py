@@ -93,6 +93,265 @@ def build_sweeping_claim_check(repo, sha, commit_message):
     }
 
 
+# ── Overclaim check ─────────────────────────────────────────────────────
+#
+# A commit or PR message that says a feature was "added" / "introduced" /
+# is "new" is making a checkable factual claim: the named thing did not
+# exist before this commit. When the message also names WHERE it went (a
+# screen, a component, a file), that resolves to real files and git
+# history answers the question directly, no model judgment.
+#
+# Flag condition: the named thing was already present in force in those
+# files at the parent commit, and this commit barely changed how much of
+# it is there. That is "it was already there, nothing was added" - a
+# verified overclaim, handed to the model as a plain fact rather than
+# something it has to reason its way to (see golden entry 14: PR #6's body
+# says an OTP resend button was "added to" both login screens; the diff
+# only lowers an existing 45s cooldown to 30s).
+#
+# This is a heuristic, not a proof:
+#   - it leans on a stop-word list to tell a feature name ("resend") from
+#     a generic word ("entry point"); the list will need tuning
+#   - it only fires when a location term resolves to a file, so a claim
+#     with no "added to <place>" is recorded but not checked
+#   - the frequency guard is what keeps genuinely-new work from flagging:
+#     if the term was absent before, occurrences_before is 0 and nothing
+#     fires
+
+CREATION_CLAIM_CUES = ("added", "adds", "introduced", "introduces", "created", "creates")
+
+_CLAIM_LOCATION_PREPS = ("to", "in", "into", "onto", "for", "within", "under", "beside", "alongside")
+
+# Generic words that are never, on their own, the name of a newly-created
+# feature. Without this, "entry point added to X" would try to verify the
+# word "point".
+_CLAIM_GENERIC_TERMS = {
+    "point", "entry", "page", "item", "view", "list", "field", "value", "state", "flow",
+    "step", "part", "area", "note", "line", "text", "icon", "card", "row", "tab", "link",
+    "menu", "form", "mode", "type", "name", "code", "data", "file", "path", "call", "hook",
+    "util", "guard", "rule", "check", "test", "spec", "docs", "logs", "url", "key", "button",
+    "screen", "screens", "feature", "features", "support", "requirement", "handler", "helper",
+    "method", "option", "config", "setup", "change", "update", "version", "number", "status",
+    "action", "banner", "label", "modal", "toast", "badge", "input", "output", "layout",
+    "style", "block", "group", "panel", "route", "stub", "shim", "flag", "cooldown",
+    "patient", "doctor", "user", "admin", "login", "logout", "backend", "frontend", "server",
+    "client", "endpoint", "database", "table", "column", "schema", "model", "record", "token",
+    "session", "request", "response", "error", "warning", "message", "string", "object",
+    "array", "function", "class", "module", "package", "library", "component", "wrapper",
+    "service", "worker", "queue", "cache", "store", "context", "provider", "reducer",
+    "selector", "effect", "event", "state", "props", "state", "logic", "wiring", "fixes",
+    "both", "real", "demo", "mock", "pilot", "prelaunch", "gate",
+}
+
+_CLAIM_IDENT_RE = re.compile(r"\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b|\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+\b")
+_CLAIM_PATH_RE = re.compile(
+    r"\b[\w./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rb|java|kt|swift|c|cpp|h|hpp|rs|php|css|scss|less|html|vue|sql|sh)\b"
+)
+_CLAIM_BACKTICK_RE = re.compile(r"`([^`]{2,60})`")
+_CLAIM_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{3,}")
+_CLAIM_MD_STRIP_RE = re.compile(r"[*_`#>\[\]]")
+# Split on line breaks, semicolons, and sentence boundaries only. A dash is
+# NOT a boundary: markdown bullets write the claim as "- **X** — added to Y",
+# where the dash joins the subject to its predicate (golden entry 14).
+_CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[\n;]|(?<=[a-z])\.\s+")
+
+# Flag when the term was already present in force before the commit
+# (>= _OVERCLAIM_MIN_PRIOR occurrences in the named files) and the commit
+# does not come close to introducing it: net new occurrences stay under
+# _OVERCLAIM_MAX_ADDED, or under half of what was already there. A real
+# "added from scratch" starts from 0 before and fails _OVERCLAIM_MIN_PRIOR;
+# an already-shipped feature that a diff only tweaks (entry 14: 88 -> 91
+# incidental mentions while lowering a cooldown) clears both.
+_OVERCLAIM_MIN_PRIOR = 3
+_OVERCLAIM_MAX_ADDED = 3
+
+
+def _looks_like_overclaim(before, after):
+    if before < _OVERCLAIM_MIN_PRIOR:
+        return False
+    return (after - before) <= max(_OVERCLAIM_MAX_ADDED, 0.5 * before)
+
+
+def _claim_terms(span):
+    """(identifier-like terms, all terms) found in a text span. Identifiers
+    keep their case (used to resolve file names); everything is lowercased
+    for the term list."""
+    idents, terms = [], set()
+    stripped = _CLAIM_MD_STRIP_RE.sub(" ", span)
+    for m in _CLAIM_BACKTICK_RE.finditer(span):
+        terms.add(m.group(1).strip().lower())
+    for m in _CLAIM_PATH_RE.finditer(stripped):
+        tok = m.group(0)
+        idents.append(tok)
+        terms.add(tok.lower())
+    for m in _CLAIM_IDENT_RE.finditer(stripped):
+        tok = m.group(0)
+        idents.append(tok)
+        terms.add(tok.lower())
+    for m in _CLAIM_WORD_RE.finditer(stripped):
+        w = m.group(0).lower()
+        if w not in _CLAIM_GENERIC_TERMS and w not in CREATION_CLAIM_CUES and w != "new":
+            terms.add(w)
+    return idents, sorted(terms)
+
+
+def _split_claim_clause(clause):
+    """Return (subject_text, location_text) for a clause that contains a
+    creation cue, or None if it has none."""
+    low = clause.lower()
+    cue_match = None
+    for cue in CREATION_CLAIM_CUES:
+        m = re.search(r"\b" + re.escape(cue) + r"\b", low)
+        if m and (cue_match is None or m.start() < cue_match.start()):
+            cue_match = m
+    if cue_match:
+        before, after = clause[:cue_match.start()], clause[cue_match.end():]
+        prep = re.match(r"\s+(" + "|".join(_CLAIM_LOCATION_PREPS) + r")\b", after, re.I)
+        if prep:
+            # "<subject> added to <location>"
+            return before, after[prep.end():]
+        # "added <subject> [to <location>]"
+        parts = re.split(r"\b(?:" + "|".join(_CLAIM_LOCATION_PREPS) + r")\b", after, maxsplit=1)
+        return parts[0], (parts[1] if len(parts) > 1 else "")
+    m = re.search(r"\bnew\b", low)
+    if m:
+        after = clause[m.end():]
+        parts = re.split(r"\b(?:" + "|".join(_CLAIM_LOCATION_PREPS) + r")\b", after, maxsplit=1)
+        return parts[0], (parts[1] if len(parts) > 1 else "")
+    return None
+
+
+def detect_creation_claims(text):
+    """Clauses of `text` that claim something was newly created, each split
+    into the thing claimed new and where it was said to go. Pure text, no
+    git."""
+    claims = []
+    for raw in _CLAIM_CLAUSE_SPLIT_RE.split(text or ""):
+        clause = re.sub(r"\s+", " ", raw.replace("*", "")).strip(" \t-•")
+        if not clause:
+            continue
+        split = _split_claim_clause(clause)
+        if split is None:
+            continue
+        subject_text, location_text = split
+        _, subject_terms = _claim_terms(subject_text)
+        loc_idents, location_terms = _claim_terms(location_text)
+        # a term that shows up on both sides is ambiguous - drop from subject
+        subject_terms = [t for t in subject_terms if t not in set(location_terms)]
+        claims.append({
+            "clause": clause,
+            "subject_terms": subject_terms,
+            "location_terms": location_terms,
+            "location_idents": loc_idents,
+        })
+    return claims
+
+
+def _resolve_location_files(repo, ref, location_idents):
+    if not location_idents:
+        return []
+    try:
+        tree = run_git(repo, "ls-tree", "-r", "--name-only", ref).splitlines()
+    except RuntimeError:
+        return []
+    matched = []
+    for ident in location_idents:
+        key = ident.lower().rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        if len(key) < 4:
+            continue
+        for f in tree:
+            if key in f.lower() and f not in matched:
+                matched.append(f)
+    return matched
+
+
+def _grep_count(repo, ref, term, files):
+    result = subprocess.run(
+        ["git", "-C", str(repo), "grep", "-i", "-I", "-F", "-c", term, ref, "--", *files],
+        capture_output=True, text=True,
+    )
+    total = 0
+    for line in result.stdout.splitlines():
+        try:
+            total += int(line.rsplit(":", 1)[1])
+        except (ValueError, IndexError):
+            pass
+    return total
+
+
+def _introduced_commit(repo, ref, term, files):
+    result = subprocess.run(
+        ["git", "-C", str(repo), "log", "-i", "-S", term, "--oneline", "--reverse", ref, "--", *files],
+        capture_output=True, text=True,
+    )
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    return lines[0] if lines else None
+
+
+def build_overclaim_check(repo, sha, commit_message, prs):
+    empty = {"detected": False, "prior_ref": None, "claims_checked": [], "overclaims": []}
+    try:
+        prior_ref = run_git(repo, "rev-parse", "--verify", f"{sha}^").strip()
+    except RuntimeError:
+        return empty  # root commit, nothing before it
+
+    sources = [commit_message]
+    for pr in prs or []:
+        sources.append(pr.get("title", ""))
+        sources.append(pr.get("description", ""))
+
+    claims = []
+    for src in sources:
+        claims.extend(detect_creation_claims(src))
+    if not claims:
+        return {**empty, "prior_ref": prior_ref}
+
+    claims_checked, overclaims = [], []
+    for claim in claims:
+        loc_files = _resolve_location_files(repo, prior_ref, claim["location_idents"])
+        entry = {
+            "clause": claim["clause"],
+            "subject_terms": claim["subject_terms"],
+            "location_files": loc_files,
+        }
+        if not loc_files or not claim["subject_terms"]:
+            entry["result"] = "not_checkable"
+            claims_checked.append(entry)
+            continue
+        term_results = []
+        for term in claim["subject_terms"]:
+            before = _grep_count(repo, prior_ref, term, loc_files)
+            after = _grep_count(repo, sha, term, loc_files)
+            is_overclaim = _looks_like_overclaim(before, after)
+            term_results.append({"term": term, "before": before, "after": after, "overclaim": is_overclaim})
+            if is_overclaim:
+                since = _introduced_commit(repo, prior_ref, term, loc_files)
+                overclaims.append({
+                    "claim": claim["clause"],
+                    "term": term,
+                    "location_files": loc_files,
+                    "occurrences_before": before,
+                    "occurrences_after": after,
+                    "existed_since": since,
+                    "plain_fact": (
+                        f"Claim says {term!r} was added ({claim['clause']!r}), but {term!r} "
+                        f"already appears {before}x in {', '.join(loc_files)} before this commit"
+                        + (f" (present since {since})" if since else "")
+                        + f", and this commit leaves it at {after}x - it was not newly added here."
+                    ),
+                })
+        entry["result"] = "checked"
+        entry["term_results"] = term_results
+        claims_checked.append(entry)
+
+    return {
+        "detected": bool(overclaims),
+        "prior_ref": prior_ref,
+        "claims_checked": claims_checked,
+        "overclaims": overclaims,
+    }
+
+
 def get_deleted_files(repo, sha, is_merge):
     """Fully-deleted files in this commit's diff, using the same scope
     (first-parent for merges) as the full diff itself."""
@@ -238,6 +497,7 @@ def get_commit_record(repo, sha, branch, repo_slug):
         "story_attribution": attribute_story(commit_message, branch, prs),
         "touches_app_code": compute_touches_app_code(files_changed),
         "sweeping_claim_check": build_sweeping_claim_check(repo, sha, commit_message),
+        "overclaim_check": build_overclaim_check(repo, sha, commit_message, prs),
         "unexplained_deletions": find_unexplained_deletions(deleted_files, commit_message),
     }
 

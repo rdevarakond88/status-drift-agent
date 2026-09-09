@@ -46,10 +46,14 @@ Four stages, currently split across three files:
    a separate, AI-free pass over the model's own generated paragraph.
    Scans it for a fixed list of "still outstanding" phrases and
    auto-corrects the status word to "Pending" when one is present but the
-   status word doesn't already say so, unless a negation word shows up in
-   the few words right before the match ("no outstanding work" doesn't
-   trigger it). Pure text matching, no model call, no real grammar beyond
-   that negation check.
+   status word doesn't already say so. Two carve-outs suppress a match:
+   a negation word in the few words right before it ("no outstanding
+   work"), or a verification word (`tested`, `QA`, `verification`,
+   `review`, `device`, ...) within a few words on either side — because
+   "verification is still outstanding" / "still needs a QA pass" is a
+   routine pending-check that rule 2 keeps at "Code complete", not
+   genuinely unfinished work. Pure text matching, no model call, no real
+   grammar beyond those two checks.
 
 `run_golden_eval.py` is the harness that runs a hand-labeled golden set
 through the full pipeline and diffs the result against the expected answer.
@@ -69,9 +73,14 @@ service names, and internal branded UI copy have also been generalized in
 the golden set and eval narratives, since they're specific enough to
 identify the private codebase even without exposing its code directly.
 
-Current result: **18 of 23** golden entries match exactly on status, 5 don't.
-That's up from an original 14/23 (`docs/disagreements.md`) after two rounds
-of changes documented in `docs/eval-v2-findings.md`: a hard block on
+Current result: **20 of 23** golden entries match exactly on status, 3
+don't (`docs/eval-v4-findings.md`). That run used self-consistency
+checking — 3 runs and a majority vote on the 8 entries with a history of
+flipping run-to-run, 1 run on the rest — rather than a single run per
+entry, since earlier rounds showed run-to-run model variance larger than
+the changes being measured. It's up from an original 14/23
+(`docs/disagreements.md`) after several rounds of changes documented in
+`docs/eval-v2-findings.md` and `docs/eval-v3-findings.md`: a hard block on
 claiming "Tested" for docs/logs/config-only commits, verifying sweeping
 claims ("no longer appears anywhere") against the actual repo instead of
 just the diff, labeling PR metadata as describing state at merge time
@@ -82,20 +91,27 @@ commit message never explains, and two corrections to golden-set entries
 (11, 14) where the agent's original answer turned out more defensible than
 the hand-written golden label.
 
-Fixed: the false contradictions between a commit's own "not yet tested"
-note and a bundling PR's aggregate claim; a text-matcher that was flipping
-correct answers to wrong ones on negated phrases like "no outstanding
-work."
+Fixed since then: bundling-hygiene and partial-completion rules (12, 13)
+added to the prompt contract; the false contradictions between a commit's
+own "not yet tested" note and a bundling PR's aggregate claim; and a
+text-matcher that was flipping correct answers to wrong ones — first on
+negated phrases like "no outstanding work", then on "not yet tested" and
+its cousins ("verification is still outstanding", "still needs a QA
+pass"), which turned out to be the same bug wearing three different
+phrases. The `not yet` patch and then a general verification-context
+carve-out (`docs/eval-v3-findings.md`, `docs/eval-v4-findings.md`) fixed
+that class; a permanent 20-case AI-free unit suite
+(`test_status_consistency_validator.py`) pins the exact real sentences
+that broke.
 
-Still open, and documented rather than papered over: one entry doesn't
-reproduce a real claim-mismatch catch reliably run to run (model variance
-on a complex bundled commit); one policy (partial completion should roll
-up to the worst-case status) exists only as a golden-set-authoring
-convention, not yet a rule the model is actually told to follow; one
-sweeping claim lives in diff/log content rather than the commit message,
-outside what the current sweeping-claim check reaches; two entries
-(bundling-hygiene flagging, and skepticism toward an unverifiable "QA
-verified" claim) aren't addressed by anything built so far.
+Still open, and documented rather than papered over: two entries (03, 09)
+are stable disagreements between the model and the hand-written golden
+label — worth a review of which is right, the same review that corrected
+entries 11 and 14 earlier; one sweeping claim (15) lives in diff/log
+content rather than the commit message, outside what the current
+sweeping-claim check reaches; case 13 passes only via majority vote and is
+genuinely unstable run-to-run because rules 3 and 13 can both fire on it
+with no stated precedence.
 
 ## Status
 

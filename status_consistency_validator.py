@@ -21,6 +21,27 @@ matches are suppressed rather than counted. This is still pure text
 matching, no understanding of grammar beyond "is there a negation word
 somewhere in the last few words before this match."
 
+A trigger phrase sitting next to a verification word ("tested", "QA",
+"verification", "review", "device", ...) is the second carve-out. Every
+trigger phrase has the same two senses: "not yet complete" / "still
+outstanding" / "still needs" can each mean the *work itself* is unfinished
+(genuine incompleteness -> flip to Pending) OR that a routine
+pending-verification step is outstanding ("not yet tested", "verification
+is still outstanding", "still needs a QA pass"), which rule 2 keeps at
+"Code complete". Substring matching can't tell the two apart, so when any
+trigger phrase has a verification word within a few words on either side,
+the match is suppressed. This replaces the old approach of hand-patching
+each trigger phrase (bare "not yet" was dropped, then "outstanding" and
+"still needs" collided the same way); the rule is phrase-agnostic and
+covers future trigger phrases too.
+
+The trigger list deliberately excludes bare "not yet": under rule 2 the
+model is expected to describe an untested mockup as "code-complete but not
+yet tested", and that phrasing must NOT be flipped to "Pending". Only the
+more specific "not yet complete / done / finished" phrasings, which speak
+to the work itself rather than a pending verification step, are triggers.
+Regression coverage for this lives in test_status_consistency_validator.py.
+
 Usage:
     python3 prompt_contract_layer.py < records.jsonl | python3 status_consistency_validator.py
 """
@@ -33,13 +54,37 @@ from prompt_contract_layer import FOLLOW_UP_QUESTION
 
 OUTSTANDING_PHRASES = [
     "still needs",
-    "not yet",
+    # "not yet" on its own is deliberately NOT here: it matches "not yet
+    # tested", which is rule 2's contractually-expected way of describing a
+    # mockup or unverified change that should still read as "Code complete",
+    # not "Pending". Only the phrasings below signal genuine incompleteness
+    # of the work itself, not a pending verification step.
+    "not yet complete",
+    "not yet done",
+    "not yet finished",
     "follow-up",
     "outstanding",
     "handed off",
 ]
 
 NEGATION_WORDS = {"no", "not", "nothing", "without", "never"}
+
+# Words that mark a routine pending-verification step rather than the work
+# itself being unfinished. A trigger phrase with one of these within a few
+# words on either side is a "not yet tested" / "verification is still
+# outstanding" / "still needs a QA pass" situation, which rule 2 keeps at
+# "Code complete". Matched against the lowercased narrative, tokenised the
+# same way as the negation scan ("QA" -> "qa", "curl-verified" -> ["curl",
+# "verified"]).
+VERIFICATION_WORDS = {
+    "tested",
+    "testing",
+    "qa",
+    "verification",
+    "verified",
+    "review",
+    "device",
+}
 
 # How many words immediately before a match to scan for a negation word.
 # 5 catches "not a gap needing follow-up" (4 words back) but misses "no
@@ -48,6 +93,13 @@ NEGATION_WORDS = {"no", "not", "nothing", "without", "never"}
 # sentence.
 NEGATION_LOOKBACK_WORDS = 8
 
+# How many words on EACH side of a trigger match to scan for a
+# verification word. 5 catches "verification is still outstanding" (4 words
+# back) and "still needs a visual QA pass" (3 words forward) without
+# reaching an unrelated "curl-verified" 8 words back in a genuine
+# "still needs to happen" sentence.
+VERIFICATION_CONTEXT_WINDOW_WORDS = 5
+
 WORD_PATTERN = re.compile(r"[a-z']+")
 
 
@@ -55,6 +107,12 @@ def _is_negated(scan_text, match_start):
     preceding_words = WORD_PATTERN.findall(scan_text[:match_start])
     window = preceding_words[-NEGATION_LOOKBACK_WORDS:]
     return any(w in NEGATION_WORDS or w.endswith("n't") for w in window)
+
+
+def _is_verification_context(scan_text, match_start, match_end):
+    before = WORD_PATTERN.findall(scan_text[:match_start])[-VERIFICATION_CONTEXT_WINDOW_WORDS:]
+    after = WORD_PATTERN.findall(scan_text[match_end:])[:VERIFICATION_CONTEXT_WINDOW_WORDS]
+    return any(w in VERIFICATION_WORDS for w in before + after)
 
 
 def validate_status(status, narrative):
@@ -67,10 +125,13 @@ def validate_status(status, narrative):
             idx = scan_text.find(phrase, start)
             if idx == -1:
                 break
-            if not _is_negated(scan_text, idx):
+            end = idx + len(phrase)
+            if not _is_negated(scan_text, idx) and not _is_verification_context(
+                scan_text, idx, end
+            ):
                 matched.append(phrase)
                 break
-            start = idx + len(phrase)
+            start = end
     if matched and status != "Pending":
         return "Pending", matched
     return status, []

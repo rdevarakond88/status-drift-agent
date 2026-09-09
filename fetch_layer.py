@@ -352,6 +352,181 @@ def build_overclaim_check(repo, sha, commit_message, prs):
     }
 
 
+# ── User-facing copy removal check ─────────────────────────────────────
+#
+# A commit whose message frames its work purely as an addition or a change
+# ("Add info icon with inline tooltip") but whose diff also quietly deletes
+# a line of text a real user would have seen on screen is making an
+# undisclosed change to the product. This is NOT the whole-file-deletion
+# case (find_unexplained_deletions, rule 11) and NOT a claim-vs-diff
+# mismatch the model has to reason toward - it is a plain, diff-level fact:
+# a visible string is gone and the message never says anything was removed.
+#
+# See golden entry 09 (ce67468): message says "Add info icon with inline
+# tooltip"; the diff also removes the always-visible hint line "An SMS will
+# be sent to the patient's registered number for verification." that showed
+# once a patient was found. Detection here is deterministic; the model was
+# free-floating between Code complete and Flagged on exactly this call.
+#
+# Scoped deliberately narrow - it must NOT fire on:
+#   - removed code, comments, styles, imports, renamed identifiers
+#     (handled by the code-punctuation / comment / ALL-CAPS guards)
+#   - text in non-UI files (only .tsx/.jsx/.vue/.svelte count)
+#   - text that is relocated, not removed (same string re-added in the diff)
+#   - whole-file deletions (already covered by rule 11)
+#   - any commit whose message DOES disclose a removal/replacement
+
+UI_COMPONENT_EXTENSIONS = {".tsx", ".jsx", ".vue", ".svelte"}
+
+# Commit-message language that discloses something was taken out or swapped.
+# If any of these is present, this check stays silent - the removal is not
+# "undisclosed" and it is not this check's job to judge whether the
+# disclosure is adequate (that is an ordinary rule 3 claim-vs-diff call).
+_REMOVAL_DISCLOSURE_RE = re.compile(
+    r"\b(remove[sd]?|removing|delet(?:e[sd]?|ing)|replac(?:e[sd]?|ing)|"
+    r"consolidat(?:e[sd]?|ing|ion)|strip(?:s|ped|ping)?|reloca(?:te[sd]?|ting|tion)|"
+    r"moved|drop(?:s|ped|ping)?|no longer)\b",
+    re.I,
+)
+
+# Characters that mean a line is code, not a bare on-screen text node.
+_CODEISH_CHARS = set("<>{}()[]:;=,/`\"\\|")
+_PROSE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'’-]*")
+# An inline JSX text node: >Some visible words<  (no braces/tags inside)
+_JSX_TEXT_NODE_RE = re.compile(r">\s*([A-Za-z][^<>{}]*?)\s*<")
+
+
+def _is_visible_prose(text):
+    """True if `text` reads as on-screen copy: at least three word-tokens,
+    contains a space, not a comment/directive, not an ALL-CAPS constant,
+    and almost entirely letters + spaces + light sentence punctuation."""
+    if not text or text.startswith(("//", "/*", "*", "#", "import", "export", "@", "-")):
+        return False
+    if " " not in text:
+        return False
+    if len(_PROSE_WORD_RE.findall(text)) < 3:
+        return False
+    if text.replace(" ", "").isupper():
+        return False
+    # assignment, union type, JSX expression, logical operator, or a code
+    # namespace reference
+    if re.search(r"[=|]|&&|\b(?:Colors|styles|theme|StyleSheet|props|React)\.", text):
+        return False
+    # a quote used as a string delimiter (`'code' in err`) rather than an
+    # apostrophe inside a word (`patient's`): a quote next to whitespace or
+    # a line boundary.
+    if re.search(r"(?:^|\s)['\"`]|['\"`](?:\s|$)", text):
+        return False
+    # a JS/TS object-property line ("backgroundColor: Colors.x,") - identifier
+    # then colon then value, ending in a structural char. Real prose that
+    # happens to use a colon ("Note: an SMS will be sent.") ends in sentence
+    # punctuation instead, so it is not caught here.
+    if re.match(r"^['\"]?[A-Za-z_$][\w$]*['\"]?:\s", text) and text.rstrip()[-1:] in ",{[":
+        return False
+    good = sum(c.isalpha() or c.isspace() or c in ".,'’!?:;-—" for c in text)
+    return good / len(text) >= 0.9
+
+
+def _removed_visible_text(raw_line):
+    """The on-screen text a removed diff line deletes, or None. Handles a
+    bare text-node line ("  An SMS will be sent...") and an inline node
+    ("<Text>Session expired</Text>")."""
+    s = raw_line.strip()
+    if not s:
+        return None
+    m = _JSX_TEXT_NODE_RE.search(s)
+    if m:
+        cand = m.group(1).strip()
+        return cand if _is_visible_prose(cand) else None
+    if _CODEISH_CHARS & set(s):
+        return None
+    return s if _is_visible_prose(s) else None
+
+
+def _iter_removed_lines(full_diff):
+    """(file_path, line_without_minus) for every real removal line in a
+    unified diff. Tracks the current file from the `+++ b/...` header."""
+    path = None
+    for line in (full_diff or "").splitlines():
+        if line.startswith("+++ "):
+            p = line[4:].strip()
+            if p == "/dev/null":
+                path = None
+            elif p.startswith(("a/", "b/")):
+                path = p[2:]
+            else:
+                path = p
+        elif line.startswith("---"):
+            continue
+        elif line.startswith("-"):
+            yield path, line[1:]
+
+
+def _normalize_text(text):
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _added_text_blob(full_diff):
+    added = []
+    for line in (full_diff or "").splitlines():
+        if line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:])
+    return _normalize_text(" ".join(added))
+
+
+def build_ui_copy_removal_check(full_diff, commit_message, prs, is_merge, deleted_files):
+    """Deterministic: does this diff delete a line of user-visible text from
+    a UI component file while the commit message discloses no removal?
+
+    Disclosure is read from the commit message for an ordinary commit. For a
+    MERGE commit the message is auto-generated boilerplate, so the PR
+    title/description is the unit that describes what the merge does (rule
+    10) and disclosure is read from there instead - golden entry 14: the
+    merge message is terse, but PR #6's body says "demo switcher buttons
+    removed". A big PR body almost always says "removed" about something, so
+    it is deliberately NOT consulted for non-merge commits, where a removal
+    the commit itself makes should be disclosed in the commit's own message.
+    """
+    if is_merge:
+        disclosure_text = "\n".join(
+            f"{pr.get('title', '')}\n{pr.get('description', '')}" for pr in (prs or [])
+        )
+    else:
+        disclosure_text = commit_message or ""
+    if _REMOVAL_DISCLOSURE_RE.search(disclosure_text):
+        return {"detected": False, "disclosed": True, "removals": []}
+
+    skip = set(deleted_files or [])
+    added_blob = _added_text_blob(full_diff)
+    removals, seen = [], set()
+    for path, raw in _iter_removed_lines(full_diff):
+        if not path or path in skip:
+            continue
+        if Path(path).suffix.lower() not in UI_COMPONENT_EXTENSIONS:
+            continue
+        text = _removed_visible_text(raw)
+        if not text:
+            continue
+        norm = _normalize_text(text)
+        if norm in added_blob:  # relocated within the same diff, not removed
+            continue
+        key = (path, norm)
+        if key in seen:
+            continue
+        seen.add(key)
+        removals.append({
+            "file": path,
+            "text": text,
+            "plain_fact": (
+                f"This commit removes a line of user-visible text from {path} "
+                f"({text!r}), and the commit message does not mention removing "
+                f"or replacing anything."
+            ),
+        })
+
+    return {"detected": bool(removals), "disclosed": False, "removals": removals}
+
+
 def get_deleted_files(repo, sha, is_merge):
     """Fully-deleted files in this commit's diff, using the same scope
     (first-parent for merges) as the full diff itself."""
@@ -499,6 +674,9 @@ def get_commit_record(repo, sha, branch, repo_slug):
         "sweeping_claim_check": build_sweeping_claim_check(repo, sha, commit_message),
         "overclaim_check": build_overclaim_check(repo, sha, commit_message, prs),
         "unexplained_deletions": find_unexplained_deletions(deleted_files, commit_message),
+        "ui_copy_removal_check": build_ui_copy_removal_check(
+            full_diff, commit_message, prs, is_merge, deleted_files
+        ),
     }
 
 

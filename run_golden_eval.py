@@ -74,6 +74,8 @@ def synthetic_record(commit_id, branch, commit_message, files_changed, full_diff
         "overclaim_check": {"detected": False, "prior_ref": None, "claims_checked": [], "overclaims": []},
         # none of the synthetic fixtures below delete a file entirely
         "unexplained_deletions": [],
+        # none of the synthetic fixtures remove user-visible on-screen text
+        "ui_copy_removal_check": {"detected": False, "disclosed": False, "removals": []},
     }
 
 

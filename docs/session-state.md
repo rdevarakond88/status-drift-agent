@@ -8,13 +8,13 @@ this one is the living pointer.
 
 ## Resuming from
 
-- **Branch:** work is now on `main`. `validator-not-yet-fix` merged into
-  `main` via `--no-ff` merge `48a2482` on 2026-09-09 and **pushed**
-  (`origin/main` @ `48a2482`). The `validator-not-yet-fix` branch is kept
-  for reference, not deleted; do new work off `main`.
-- **Last session:** 2026-09-09 — verification-context carve-out (v4 eval),
-  the deterministic overclaim check (fetch layer + prompt contract), then
-  merged the branch into `main`.
+- **Branch:** `eval-v5-overclaim-verification`, branched off `main`
+  (`6e7051e`). Holds the v5 eval writeup, README pass-rate update, entry 03
+  label correction, and the refreshed selfconsistency results. Not yet
+  merged, not pushed. `validator-not-yet-fix` is still kept for reference.
+- **Last session:** 2026-09-09 (session 2) — ran the full v5 self-consistency
+  eval measuring the merged overclaim check + verification carve-out;
+  corrected golden entry 03's label. Result **22/23** (only miss: 15).
 
 ## Status of the work
 
@@ -27,27 +27,25 @@ this one is the living pointer.
 | Docs: `eval-v4-findings.md`, README | DONE — committed `d9c0219` |
 | Overclaim check — fetch-layer detection (`build_overclaim_check`) + 8 unit cases | DONE — committed `10e5af6`; false-positive sweep clean (fires on entry 14 only) |
 | Overclaim check — prompt-contract wiring (payload field, `enforce_deterministic_rules`, rule 14) + 6 more unit cases | DONE — committed `c36a518`, **14/14 pass**, AI-free |
-| Full 23-entry eval since `10e5af6`/`c36a518` landed | **NOT RUN** — pending (see open decision 1) |
-| Merge to `main` | DONE — `--no-ff` merge `48a2482`, pushed to `origin/main` |
+| Full 23-entry eval since `10e5af6`/`c36a518` landed | DONE — v5 self-consistency run, **22/23**, `docs/eval-v5-findings.md` |
+| Entry 14 deterministic `Flagged` via rule 14 | CONFIRMED — 3/3 Flagged; `overclaim_check.detected` True deterministically, `enforce_deterministic_rules` forces Flagged for any model status |
+| Golden entry 03 label | CORRECTED — `Pending` → `Code complete`, `correct_agent_response` rewritten to match 01/04–08/10 |
+| Merge `eval-v5-overclaim-verification` to `main` | **NOT DONE** — see open decision 1 |
 
 ## Open decisions for next session (in priority order)
 
-1. **Run the next full 23-entry eval.** Not re-run since the two
-   overclaim-check commits (`10e5af6`, `c36a518`) landed and merged. Rule
-   14 now force-flags a detected overclaim, so entry 14 should move to
-   `Flagged` deterministically; effect on the other 22 is unmeasured.
-   Decide: run the full self-consistency eval (39 `claude -p` calls), a
-   1×/entry run, or hold for more batched changes first. Whatever the
-   result, write it up as `docs/eval-v5-findings.md` and update the
-   README pass rate.
+1. **Merge `eval-v5-overclaim-verification` into `main` and push.** Branch
+   holds only docs + the entry 03 label + refreshed eval output — no code
+   change. Same `--no-ff` + push pattern as the last merge.
 
-2. **Entry 09's say-vs-do flag — accepted judgment call, not a bug.**
-   Across the v4 self-consistency run the model flagged 09 3/3 (message
-   says it only adds an info icon/tooltip; the diff also silently removes
-   an existing inline SMS-hint line). Golden wants `Code complete`. This
-   is a defensible rule-3 read, not a validator or overclaim-check
-   failure — left as-is. Revisit only if the golden label itself is
-   reviewed (same as the 03/11/14 label-review question).
+2. **Entry 09 — genuine run-to-run instability, not resolved.** v4: 3/3
+   `Flagged`. v5: 2/3 `Code complete` (now "passes" by majority), with no
+   code change on its path between the two runs. The model alternately
+   reads the diff's silent removal of an inline SMS-hint line as a rule 3
+   say-vs-do mismatch or as within scope of "add an info icon". Passing now
+   is luck, not a fix. Decide whether the golden label is right and/or
+   whether rule 3 needs tightening. (Was framed as "accepted judgment
+   call" after v4 — v5 shows it's actually unstable.)
 
 3. **Case 13 rule precedence.** Passes now only via majority vote (2/3),
    genuinely unstable because rule 3 and rule 13 can both fire on it and

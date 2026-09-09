@@ -26,6 +26,13 @@ Two groups, matching how the validator is supposed to behave:
 
 Add a case here whenever a real narrative slips through wrong, so the
 fix stays fixed.
+
+Verification-context carve-out (added after cases 01 and 06 broke the
+same way case 04 had): a trigger phrase with a verification word
+("tested", "QA", "verification", "review", "device", ...) within ~5 words
+on either side is a routine pending-verification mention, not genuine
+incompleteness, and must NOT trigger. The exact real sentences that broke
+are pinned below as CASE_01_/CASE_04_/CASE_06_NARRATIVE_AS_GENERATED.
 """
 
 import sys
@@ -61,12 +68,92 @@ CASE_04_NARRATIVE_AS_GENERATED = (
 )
 
 
+# The exact case 01 narrative from the last eval run (eval_output/results.jsonl,
+# golden_file 01.json). "outstanding" matched in "that verification is still
+# outstanding" and flipped a correct "Code complete" to "Pending". The word
+# "verification" sits 4 words before the match, so the verification-context
+# carve-out must now suppress it.
+CASE_01_NARRATIVE_AS_GENERATED = (
+    "This commit does exactly what its message says: it removes a hardcoded web "
+    "address in the authentication file (src/api/auth.ts) that pointed at the retired "
+    "Render.com server, and instead pulls in the shared API_BASE_URL setting from the "
+    "app's central API client. The diff confirms all four sign-in-related functions "
+    "named in the message (send one-time passcode, verify passcode, verify patient "
+    "passcode, and refresh access token) were updated to use that shared value, so "
+    "login traffic should now follow whatever address the demo startup script "
+    "configures (the cloudflared tunnel). The only other changed file is the project's "
+    "session tracking document, which is a routine status-log update and not unrelated "
+    "content. The change is self-contained and internally consistent with its claim, so "
+    "it reads as code complete. It is not marked as tested: the commit message does not "
+    "claim any testing was run, and the updated tracking document explicitly routes the "
+    "next step to a device tester to confirm one-time-passcode login actually works on "
+    "a phone, so that verification is still outstanding. The commit is attributed to "
+    "story D1, which matches. The pull request that later bundled this work describes "
+    "end-to-end device verification, but per the rules that reflects the combined state "
+    "at merge time and does not contradict this single commit still needing its own "
+    "on-device check; I only read the message and diff and did not run anything myself. "
+    "Follow-up for the developer: when/how will this be tested, and what's the ETA?"
+)
+
+
+# The exact case 06 narrative from the last eval run (eval_output/results.jsonl,
+# golden_file 06.json). "still needs" matched in "still needs a visual QA pass"
+# and flipped a correct "Code complete" to "Pending". "QA" sits 3 words after
+# the match, so the verification-context carve-out must now suppress it.
+CASE_06_NARRATIVE_AS_GENERATED = (
+    "This commit adjusts the visual styling of the error and \"not found\" states on "
+    "the doctor's consent lookup screen so they look less alarming: instead of a "
+    "red-tinted fill, the affected elements now use a plain white/surface background "
+    "with a red border and red text, and the \"not found\" card's border is made "
+    "slightly thicker while its warning icon switches from a solid red circle to an "
+    "outlined one with red text. The changes in the diff line up with what the commit "
+    "message describes, and the work is limited to that one screen file with no other "
+    "scope. This is tied to story D7, which was correctly attributed from the commit "
+    "message. There is no indication in the message or the diff that this change was "
+    "actually run or visually checked on a device or simulator, so testing cannot be "
+    "assumed from the data provided; the pull request it later merged under states "
+    "device verification was done at the PR level, but that speaks to the bundle at "
+    "merge time rather than this individual styling commit. No files were deleted and "
+    "no unrelated material is bundled in, so treating this as finished code that still "
+    "needs a visual QA pass is the right read. Follow-up for the developer: when/how "
+    "will this be tested, and what's the ETA?"
+)
+
+
 # (name, incoming_status, narrative)
 NEVER_TRIGGER = [
     (
         "case_04_exact_as_generated",
         "Code complete",
         CASE_04_NARRATIVE_AS_GENERATED,
+    ),
+    (
+        # Real sentence that broke: "outstanding" next to "verification".
+        "case_01_exact_as_generated",
+        "Code complete",
+        CASE_01_NARRATIVE_AS_GENERATED,
+    ),
+    (
+        # Real sentence that broke: "still needs" next to "QA".
+        "case_06_exact_as_generated",
+        "Code complete",
+        CASE_06_NARRATIVE_AS_GENERATED,
+    ),
+    (
+        # "still outstanding" with a verification word right beside it: a
+        # pending device/verification step, which rule 2 keeps at "Code
+        # complete". Must be suppressed by the verification-context carve-out.
+        "still_outstanding_with_verification_context",
+        "Code complete",
+        "The implementation is done and the diff is self-consistent; the on-device "
+        "testing is still outstanding and is routed to a device tester.",
+    ),
+    (
+        # "still needs" + "QA": a pending QA pass, not unfinished work.
+        "still_needs_qa_pass",
+        "Code complete",
+        "The styling change is complete and matches the commit message; it still needs "
+        "a QA pass on a real screen before it ships.",
     ),
     (
         "bare_not_yet_tested_sentence",
@@ -134,10 +221,16 @@ MUST_TRIGGER = [
         "still needs",
     ),
     (
-        "outstanding_verification_step",
+        # "outstanding work" with NO verification word nearby: the work
+        # itself is unfinished, so this must still flip to "Pending".
+        # (Replaces an earlier "one outstanding verification step remains"
+        # case -- that phrasing literally describes a pending verification
+        # step, which rule 2 keeps at "Code complete", so it belonged in
+        # NEVER_TRIGGER, not here.)
+        "outstanding_work_no_verification_context",
         "Code complete",
-        "The code looks complete, but one outstanding verification step remains before "
-        "this can ship.",
+        "The happy path is implemented, but there is still significant outstanding "
+        "work on the error-handling branch before this is usable.",
         "outstanding",
     ),
     (

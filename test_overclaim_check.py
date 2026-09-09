@@ -20,6 +20,7 @@ What the check must do:
     not flagged either way
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -27,6 +28,11 @@ import tempfile
 from pathlib import Path
 
 from fetch_layer import build_overclaim_check, detect_creation_claims
+from prompt_contract_layer import (
+    FOLLOW_UP_QUESTION,
+    build_user_prompt,
+    enforce_deterministic_rules,
+)
 
 
 # ── hermetic git repo helpers ──────────────────────────────────────────
@@ -86,12 +92,10 @@ export function LoginScreen() {
 LOGIN_WITH_RESEND_30 = LOGIN_WITH_RESEND.replace("RESEND_SECONDS = 45", "RESEND_SECONDS = 30")
 
 
-# The real PR #6 description (golden entry 14). The "added" claim is the
-# OTP-resend bullet; the diff for the two login screens only lowers an
-# existing 45s cooldown to 30s.
-# Verbatim shape of the real PR #6 body, em-dash separators and all — the
-# "added" claim is joined to its subject by " — ", which must not be read
-# as a clause boundary.
+# Verbatim shape of the real PR #6 body (golden entry 14). The "added"
+# claim is the OTP-resend bullet; the diff for the two login screens only
+# lowers an existing 45s cooldown to 30s. The claim is joined to its
+# subject by " — ", which must not be read as a clause boundary.
 PR6_BODY = """\
 ## Summary
 
@@ -285,9 +289,106 @@ def _check_real_entry_14():
     return failures
 
 
+# ── prompt-contract wiring: the code-level Flagged override ────────────
+
+def _record(overclaim_check=None, **extra):
+    r = {
+        "commit_id": "test",
+        "commit_message": "x",
+        "files_changed": ["src/a.ts"],
+        "full_diff": "",
+        "pr_metadata": [],
+        "story_attribution": {"status": "unattributed", "story_id": None, "matched_in": None},
+        "touches_app_code": True,
+        "unexplained_deletions": [],
+    }
+    if overclaim_check is not None:
+        r["overclaim_check"] = overclaim_check
+    r.update(extra)
+    return r
+
+
+_DETECTED_OC = {
+    "detected": True,
+    "prior_ref": "f7936ee",
+    "claims_checked": [],
+    "overclaims": [{
+        "claim": "OTP resend added to LoginScreen",
+        "term": "resend",
+        "location_files": ["src/screens/doctor/LoginScreen.tsx"],
+        "occurrences_before": 88,
+        "occurrences_after": 91,
+        "existed_since": "12969c8 Doctor Visit Flow",
+        "plain_fact": "Claim says 'resend' was added, but 'resend' already appears 88x ... since 12969c8.",
+    }],
+}
+_NOT_CHECKABLE_OC = {
+    "detected": False,
+    "prior_ref": "f7936ee",
+    "claims_checked": [{"clause": "added a dashboard", "subject_terms": ["dashboard"],
+                        "location_files": [], "result": "not_checkable"}],
+    "overclaims": [],
+}
+
+
+def _check_contract_override():
+    failures = []
+
+    # detected=True -> status forced to Flagged, whatever the model said
+    for model_status in ("Code complete", "Tested", "Pending"):
+        status, _ = enforce_deterministic_rules(model_status, "The commit does X.", _record(_DETECTED_OC))
+        if status != "Flagged":
+            failures.append(f"[override] detected overclaim + model {model_status!r} -> {status!r}, expected 'Flagged'")
+    if not failures:
+        print("  ok   override      detected overclaim forces Flagged over Code complete / Tested / Pending")
+
+    # detected=True + model already Flagged -> still Flagged, no error
+    status, _ = enforce_deterministic_rules("Flagged", "Already flagged.", _record(_DETECTED_OC))
+    if status != "Flagged":
+        failures.append(f"[override] detected overclaim + model 'Flagged' -> {status!r}")
+    else:
+        print("  ok   override      detected overclaim + model already Flagged -> Flagged")
+
+    # not_checkable -> no effect: Code complete stays Code complete
+    status, _ = enforce_deterministic_rules("Code complete", "The commit does X.", _record(_NOT_CHECKABLE_OC))
+    if status != "Code complete":
+        failures.append(f"[override] not_checkable overclaim changed status to {status!r}")
+    else:
+        print("  ok   override      not_checkable overclaim -> status unaffected")
+
+    # overclaim_check absent entirely -> no effect (behaves exactly as before)
+    status, _ = enforce_deterministic_rules("Code complete", "The commit does X.", _record())
+    if status != "Code complete":
+        failures.append(f"[override] absent overclaim_check changed status to {status!r}")
+    else:
+        print("  ok   override      absent overclaim_check -> status unaffected")
+
+    # the plain_fact actually reaches the model payload
+    payload = json.loads(build_user_prompt(_record(_DETECTED_OC)))
+    oc = payload.get("overclaim_check", {})
+    if not (oc.get("detected") and oc["overclaims"][0]["plain_fact"] and oc["overclaims"][0]["existed_since"]):
+        failures.append(f"[override] plain_fact / existed_since not in prompt payload: {oc}")
+    else:
+        print("  ok   override      detected/existed_since/plain_fact passed into the prompt payload")
+
+    # a not-detected overclaim_check is slimmed to just {detected: false} in the payload
+    payload = json.loads(build_user_prompt(_record(_NOT_CHECKABLE_OC)))
+    if payload.get("overclaim_check") != {"detected": False}:
+        failures.append(f"[override] not-detected overclaim_check not slimmed in payload: {payload.get('overclaim_check')}")
+    else:
+        print("  ok   override      not-detected overclaim_check slimmed to {detected: false} in payload")
+
+    return failures
+
+
 def _run():
     with tempfile.TemporaryDirectory() as tmp:
-        failures = _check_detect() + _check_overclaim(tmp) + _check_real_entry_14()
+        failures = (
+            _check_detect()
+            + _check_overclaim(tmp)
+            + _check_contract_override()
+            + _check_real_entry_14()
+        )
     print()
     if failures:
         print(f"FAIL - {len(failures)} overclaim-check test(s) failed:")

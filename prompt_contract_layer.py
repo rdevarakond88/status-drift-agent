@@ -33,8 +33,9 @@ SYSTEM_PROMPT = """You translate a single raw git commit's structured data into 
 11. unexplained_deletions lists any file this commit deletes entirely that isn't named anywhere in the commit message. If it's non-empty, status must be "Flagged" (this is enforced separately in code as a safety net, but write the narrative as if it's your own judgment call). Say plainly which file(s) were removed without the message explaining why. Use the same plain, unalarmed tone as any other flagged item: this is a routine traceability gap worth a developer's eyes, not a sign of anything more serious, so don't editorialize about intent or motive you don't have evidence for.
 12. If the diff bundles clearly unrelated content types together (for example, a code fix alongside an unrelated document, article, or write-up that is not part of implementing that fix), flag it. Being about the same underlying issue does not by itself make something "part of implementing the fix": a full write-up, postmortem article, or blog-style post explaining the incident for an audience beyond the immediate fix (a LinkedIn draft, a shareable article, anything written to be published or read outside this codebase) still counts as unrelated content bundled in, even when it covers the exact same bug the rest of the diff fixes. That is different from the routine engineering documentation this repository's commits normally carry alongside a fix: a test file, a short changelog-style note, or the routine tracking-log/status-doc updates. Only that narrower, routine kind is exempt; a standalone article or write-up is not, regardless of topic overlap. When rule 12 applies, status must be "Flagged", same plain, unalarmed tone as any other flagged item, not an elevated concern: work something like "this commit bundles unrelated content; consider splitting for traceability" into the paragraph.
 13. If the commit's own message or diff frames its content as multiple distinct sub-items (for example, a list of things closed or fixed versus things left open), and at least one of those sub-items is explicitly still open, unresolved, or waiting on a human decision, the overall status must be "Pending", even if every other sub-item is complete. Do not average toward the majority state: one explicitly-open sub-item is enough to make the whole commit Pending. This is different from rules 1 to 2's ordinary "not yet tested" case: a single self-contained piece of work that just hasn't been tested yet is still "Code complete", not "Pending", under those rules. Rule 13 only applies when the commit itself frames its own content as several separate items with different completion states, not to a single item awaiting one verification step.
+14. overclaim_check is provided when a commit or PR message claims a feature was "added", "introduced", or is "new", and that claim has already been checked against the repository's git history in code, not by you. When detected is true, the named thing already existed before this commit: each entry in overclaims carries a plain_fact string ("Claim says X was added ... but X already appears ... present since commit Y ... it was not newly added here"). This is verified fact, not something for you to re-check against the diff, soften, or explain away. State the plain_fact plainly in the narrative in your own words (what was claimed as added, and the commit it has actually existed since), using the same unalarmed tone as any other flagged item, and set status to "Flagged" (this is also enforced separately in code as a safety net). When detected is false or overclaim_check is absent, it gives you nothing to act on.
 
-You will be given: the commit message, the full diff, the list of files changed, PR metadata if any (treat PR title/description as another claim to check against the diff, not as verified fact; see rule 10 for how to weigh it against this commit's own narrower state), a story_attribution object already computed upstream (you must not override or re-derive story_id yourself), a sweeping_claim_check object (see rule 9), and an unexplained_deletions list (see rule 11).
+You will be given: the commit message, the full diff, the list of files changed, PR metadata if any (treat PR title/description as another claim to check against the diff, not as verified fact; see rule 10 for how to weigh it against this commit's own narrower state), a story_attribution object already computed upstream (you must not override or re-derive story_id yourself), a sweeping_claim_check object (see rule 9), an unexplained_deletions list (see rule 11), and an overclaim_check object (see rule 14).
 
 Respond with ONLY a JSON object, no markdown fences, no extra text, in exactly this shape:
 {"status": "<one of the four values>", "narrative": "<one paragraph>"}
@@ -54,8 +55,30 @@ def build_user_prompt(record):
             "sweeping_claim_check", {"detected": False, "keywords_matched": [], "verifications": []}
         ),
         "unexplained_deletions": record.get("unexplained_deletions", []),
+        "overclaim_check": _overclaim_for_prompt(record),
     }
     return json.dumps(payload)
+
+
+def _overclaim_for_prompt(record):
+    """Slim overclaim_check down to what the model needs: whether a
+    verified overclaim was found and, if so, the plain facts. The full
+    claims_checked breakdown stays in the fetch-layer record, out of the
+    prompt."""
+    oc = record.get("overclaim_check") or {}
+    if not oc.get("detected"):
+        return {"detected": False}
+    return {
+        "detected": True,
+        "overclaims": [
+            {
+                "term": o.get("term"),
+                "existed_since": o.get("existed_since"),
+                "plain_fact": o.get("plain_fact"),
+            }
+            for o in oc.get("overclaims", [])
+        ],
+    }
 
 
 def call_claude(system_prompt, user_prompt, timeout=120):
@@ -81,14 +104,11 @@ def parse_model_output(raw_text):
     return parsed
 
 
-def generate_status_update(record):
-    user_prompt = build_user_prompt(record)
-    raw = call_claude(SYSTEM_PROMPT, user_prompt)
-    parsed = parse_model_output(raw)
-
-    narrative = parsed["narrative"]
-    status = parsed["status"]
-
+def enforce_deterministic_rules(status, narrative, record):
+    """Code-level contract enforcement applied to the model's raw output.
+    These are the mechanical rules that are not left to the model's
+    judgement. Pure, no AI, no network - unit-testable on its own.
+    """
     # Hard block: "Tested" is not an available answer for a commit that
     # doesn't touch any real source file, no matter what the model (or the
     # commit message) claims.
@@ -100,9 +120,27 @@ def generate_status_update(record):
     if record.get("unexplained_deletions") and status != "Flagged":
         status = "Flagged"
 
+    # Rule 14 safety net: a verified overclaim (message says a feature was
+    # "added" but git history shows it already existed) is always Flagged.
+    # The plain fact is in overclaim_check.overclaims[].plain_fact and the
+    # model is told to state it; this override just guarantees the status.
+    overclaim_check = record.get("overclaim_check") or {}
+    if overclaim_check.get("detected") and status != "Flagged":
+        status = "Flagged"
+
     # Rule 4, enforced in code rather than trusted to the model.
     if status == "Code complete" and FOLLOW_UP_QUESTION.strip() not in narrative:
         narrative = narrative.rstrip() + FOLLOW_UP_QUESTION
+
+    return status, narrative
+
+
+def generate_status_update(record):
+    user_prompt = build_user_prompt(record)
+    raw = call_claude(SYSTEM_PROMPT, user_prompt)
+    parsed = parse_model_output(raw)
+
+    status, narrative = enforce_deterministic_rules(parsed["status"], parsed["narrative"], record)
 
     return {
         "commit_id": record["commit_id"],

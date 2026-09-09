@@ -8,52 +8,57 @@ this one is the living pointer.
 
 ## Resuming from
 
-- **Branch:** `validator-not-yet-fix` (off `main`, commit `ac2708c`+). Not pushed.
-- **Last session:** 2026-08-27 — see `docs/session-handoff-2026-08-27.md` for the full detail.
+- **Branch:** `validator-not-yet-fix` (off `main`). **Pushed** to
+  `origin/validator-not-yet-fix` as of 2026-09-09.
+- **Last session:** 2026-09-09 — verification-context carve-out + a
+  self-consistency-checked eval run (v4).
 
 ## Status of the work
 
 | Item | State |
 |---|---|
-| Drop bare `"not yet"` trigger, add `not yet complete/done/finished` | DONE — `status_consistency_validator.py` |
-| Permanent unit suite | DONE — `test_status_consistency_validator.py`, **16/16 pass**, AI-free |
-| Scorer | DONE — `score_golden_eval.py` (none existed before) |
-| Full pipeline eval, post-fix | RUN — **18/23** (was 18/23); case 04 fixed; composition churned on model variance |
-| Commit | DONE (branch, not pushed) |
-| Push / merge | NOT DONE — waiting on user |
+| Rules 12/13 in prompt contract | DONE — committed `6352660` (earlier session) |
+| Drop bare `"not yet"` trigger + original 16-case unit suite | DONE — committed `ac2708c` (earlier session) |
+| General verification-word carve-out + 20-case unit suite | DONE — committed this session, **20/20 pass**, AI-free |
+| Self-consistency eval run (3× on 8 unstable entries, 1× rest) | RUN — **20/23**; misses 03, 09, 15; see `docs/eval-v4-findings.md` |
+| Docs: `eval-v4-findings.md`, README | DONE — committed this session |
+| Push branch | DONE — `origin/validator-not-yet-fix` |
+| Merge to `main` | NOT DONE — waiting on user |
 
 ## Open decisions for next session (in priority order)
 
-1. **Push / merge `validator-not-yet-fix`?** `origin` =
-   `github.com/rdevarakond88/status-drift-agent`. Nothing pushed yet.
+1. **Merge `validator-not-yet-fix` → `main`?** Branch is pushed. `main`
+   is still at `37856c1`. Nothing merged yet.
 
-2. **`"outstanding"` and `"still needs"` have the same flaw `"not yet"`
-   had.** Post-fix pipeline run: cases 01 and 06 flipped `Code complete` →
-   `Pending` because the model wrote "verification is still **outstanding**"
-   (01) and "finished code that **still needs** a visual QA pass" (06) —
-   both mean "pending verification step," which rule 2 keeps at `Code
-   complete`. Decide: give these two phrases a rule-2-aware carve-out (like
-   the negation guard is a carve-out), or accept the false positives.
-   Note: `"still needs to happen"` genuinely SHOULD trigger and the unit
-   suite asserts it — substring matching can't separate the two senses.
+2. **Cases 03 and 09 — model vs golden-label disagreement.** Both are
+   stable (3/3 in the self-consistency run), neither involves the
+   validator. 03: model says `Code complete`, golden wants `Pending`.
+   09: model says `Flagged`, golden wants `Code complete`. Decide whose
+   answer is right — same kind of review that corrected golden entries 11
+   and 14 earlier. If the golden labels are wrong, correcting them takes
+   the score to 22/23.
 
-3. **Eval is too noisy to certify "nothing else broke."** 8 of 23 entries
-   flipped pass/fail between two runs of near-identical code (only the
-   validator changed). Options: run each entry 3–5× and majority-vote, or
-   freeze `prompt_contract_layer` outputs and re-run only the validator
-   stage so its effect is isolated from model variance.
+3. **Case 13 rule precedence.** Passes now only via majority vote (2/3),
+   genuinely unstable because rule 3 and rule 13 can both fire on it and
+   the contract states no precedence. Diagnosed in `eval-v3-findings.md`,
+   still unresolved.
 
-4. **Docs:** once 2–3 are decided, write `docs/eval-v4-findings.md` and
-   update `README.md` (still says 18/23 with only the negation-guard fix
-   noted; no mention of the `not yet` fix or the outstanding/still-needs
-   finding).
+4. **Case 15.** Unchanged long-standing miss — sweeping claim lives in
+   diff/log content, not the commit message, outside the sweeping-claim
+   check's reach.
+
+5. **Eval cost.** The v4 self-consistency run was 39 `claude -p` calls.
+   Cheaper alternative not yet taken: freeze `prompt_contract_layer`
+   outputs and re-run only the validator stage to isolate its effect from
+   model variance.
 
 ## Re-run commands (for reference — a session can just run these)
 
 ```bash
 cd /home/rdeva/status-translation-agent
-python3 test_status_consistency_validator.py                              # unit suite, fast
-EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_golden_eval.py         # full eval, ~10-20 min
+python3 test_status_consistency_validator.py                              # unit suite, fast, 20 cases
+EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_golden_eval.py         # full eval, 1x/entry, ~10-20 min
 python3 score_golden_eval.py                                              # score results.jsonl
 python3 score_golden_eval.py eval_output/results-prefix-baseline.jsonl    # score the pre-fix baseline
+EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_selfconsistency_eval.py  # 3x on unstable entries, 1x rest
 ```

@@ -179,6 +179,6 @@ P = Pass, F = Fail. Runs 6–8 use self-consistency (majority vote); runs 1–5 
 
 ## Related documents
 
-- `validator-negation-story.md` — the full, focused arc of the Status Consistency Validator's four separate breaks and how each was actually fixed
+- `eval-v2-findings.md` — the arc of the Status Consistency Validator's negation-blindness breaks and how each was fixed (continued in `eval-v3-findings.md`, `eval-v4-findings.md`)
 - `golden-set-reference.md` — the 23 entries themselves
-- `prompt-contract-rules.md` — the full, current 15-rule reference, including the code-enforcement-gap finding
+- `prompt-contract-reference.md` — the full, current 15-rule reference, including the code-enforcement-gap finding

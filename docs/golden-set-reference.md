@@ -26,11 +26,11 @@
 | 11 | Reworked hook governance into 5 phases, undocumented but verified via diff | Code complete | |
 | 12 | Fixed startup deadlock; bundled an unrelated draft article | Code complete | Hygiene issue flagged separately, not a code problem |
 | 13 | Governance audit — 2 items closed, 2 still open | Pending | |
-| 14 | Bundled release (OTP resend, API wiring, bug fixes) | Code complete | Eval found the model actually caught a real overclaim here — see Section 2 |
+| 14 | Bundled release (OTP resend, API wiring, bug fixes) | Code complete | Eval found the model actually caught a real overclaim here — see `eval-history.md` |
 | 16 | Documentation-only log entry | No app behavior changed | |
-| 17 | Investigated a suspected bug, no code changed | Code complete | Eval revealed a genuine rule-wording gap — see Section 2 |
+| 17 | Investigated a suspected bug, no code changed | Code complete | Eval revealed a genuine rule-wording gap — see `eval-history.md` |
 | 18 | Reverted a prior fix after its assumption proved wrong | Code complete | |
-| 19 | Removed a screen entirely, no reason given | Flagged | Missing AI-signature line + no stated reason — see Section 2 |
+| 19 | Removed a screen entirely, no reason given | Flagged | Missing AI-signature line + no stated reason — see `eval-history.md` |
 
 ## Discrepancy found in the repo's own history
 
@@ -51,7 +51,7 @@
 
 ## Where to look next
 
-- **What the eval run found when the AI was tested against these 23** → see `eval-observations-log.md`
-- **The rules the AI follows when generating its own answer** → see `prompt-contract-rules.md`
-- **The fetch script itself, explained plainly** → see `fetch-layer-explainer.md`
-- **Full project history and every decision made along the way** → see `status-translation-agent-log.md`
+- **What the eval run found when the AI was tested against these 23** → see `eval-history.md`
+- **The rules the AI follows when generating its own answer** → see `prompt-contract-reference.md`
+- **The fetch script itself** → see `fetch_layer.py` (heavily commented) in the repo root
+- **Current status and open decisions** → see `session-state.md`

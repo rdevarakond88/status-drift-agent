@@ -104,7 +104,7 @@ The AI is explicitly told to ignore this rule number — it's a placeholder. **F
 
 ## The third enforcement stage — outside this file entirely
 
-There's one more layer that isn't part of the prompt contract at all: **`status_consistency_validator.py`**, a pure text-matcher that runs *after* the AI has already produced its answer. It doesn't read any rule numbers — it just scans the AI's own finished paragraph for phrases like "still outstanding" or "not yet complete," and flips the status word if it contradicts what the paragraph itself says. See `validator-negation-story.md` for its full, separately-documented history.
+There's one more layer that isn't part of the prompt contract at all: **`status_consistency_validator.py`**, a pure text-matcher that runs *after* the AI has already produced its answer. It doesn't read any rule numbers — it just scans the AI's own finished paragraph for phrases like "still outstanding" or "not yet complete," and flips the status word if it contradicts what the paragraph itself says. See `eval-v2-findings.md` for its negation-blindness history, continued in `eval-v3-findings.md` and `eval-v4-findings.md`.
 
 **Full pipeline, three distinct enforcement mechanisms:**
 1. **SYSTEM_PROMPT rules** — instructions given to the AI before it answers (all 15 rules)
@@ -122,6 +122,6 @@ Entry 13's real fix isn't a new rule — it's **making rule 9 or rule 13 (or bot
 ## Related documents
 
 - `golden-set-reference.md` — the 23 entries these rules are tested against
-- `eval-run-history.md` — all 8 real eval runs, verified against git history
-- `validator-negation-story.md` — the separate, third enforcement stage's own history
-- `status-translation-agent-log.md` — full project history
+- `eval-history.md` — all 8 real eval runs, verified against git history
+- `eval-v2-findings.md` — the separate, third enforcement stage's own history (negation-blindness arc; continued in `eval-v3-findings.md`, `eval-v4-findings.md`)
+- `session-state.md` — current status and open decisions

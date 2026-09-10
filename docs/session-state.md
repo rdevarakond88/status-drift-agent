@@ -8,20 +8,20 @@ this one is the living pointer.
 
 ## Resuming from
 
-- **Branch:** `rule15-ui-copy-removal`, branched off `eval-v5-overclaim-verification`
-  (`db6c7da`), itself off `main` (`6e7051e`). Two unmerged branches stacked:
-    - `eval-v5-overclaim-verification` — v5 eval writeup, README pass rate,
-      entry 03 label, refreshed selfconsistency output. No code change.
-    - `rule15-ui-copy-removal` — NEW deterministic check + rule 15 (this
-      session). All 3 unit suites green. **Full eval held** pending the
-      entry 09 golden-label decision (open decision 2).
+- **Branch:** work is on `main`. Both feature branches merged `--no-ff` and
+  **pushed** on 2026-09-10:
+    - `eval-v5-overclaim-verification` → merge `2bcffcd`
+    - `rule15-ui-copy-removal` → merge `ad65497`
+    - then `86ed931` on `main` direct: `call_claude` timeout 120 → 180 s.
+  Both branches kept for reference, not deleted. Do new work off `main`.
 - **Last session:** 2026-09-09/10 (session 3) — built rule 15
   (deterministic undisclosed-UI-copy-removal check + `Flagged` override),
   flipped golden entry 09 → `Flagged` (architect-confirmed), ran the v6
-  self-consistency eval. **21/23**, misses 13 + 15. Rule 15 works
-  perfectly (09 now 3/3 `Flagged` deterministically, zero false
-  positives); entry 13 regressed on its own long-standing rule 3/9-vs-13
-  coin-flip, unrelated to rule 15. See `docs/eval-v6-findings.md`.
+  self-consistency eval (**21/23**, misses 13 + 15), then merged the v5
+  and rule-15 branches into `main` and pushed. Rule 15 works perfectly
+  (09 now 3/3 `Flagged` deterministically, zero false positives); entry 13
+  regressed on its own long-standing rule 3/9-vs-13 coin-flip, unrelated
+  to rule 15. See `docs/eval-v6-findings.md`.
 
 ## Status of the work
 
@@ -40,20 +40,13 @@ this one is the living pointer.
 | Rule 15 — undisclosed UI-copy removal check (`build_ui_copy_removal_check` + prompt wiring + override) | DONE — committed `55f483a`. 3 unit suites green (validator 20, overclaim 14, ui-copy-removal 22). Sweep: fires on entry 09 only. |
 | Golden entry 09 label | FLIPPED — `Code complete` → `Flagged`, committed `fcd8b83` (architect-confirmed). |
 | v6 self-consistency eval | DONE — **21/23**, misses 13 + 15. `docs/eval-v6-findings.md`. |
-| Merge `eval-v5-overclaim-verification` to `main` | **NOT DONE** — see open decision 1 |
-| Merge `rule15-ui-copy-removal` to `main` | **NOT DONE** — after decision 1 (+ optionally decision 2) |
+| Merge `eval-v5-overclaim-verification` to `main` | DONE — `--no-ff` merge `2bcffcd`, pushed |
+| Merge `rule15-ui-copy-removal` to `main` | DONE — `--no-ff` merge `ad65497`, pushed |
+| `call_claude` timeout 120 → 180 s | DONE — `86ed931` on `main`, pushed |
 
 ## Open decisions for next session (in priority order)
 
-1. **Merge both stacked branches into `main` and push.** Order:
-   `eval-v5-overclaim-verification` first (docs + entry 03 label + eval
-   output, no code), then `rule15-ui-copy-removal` (rule 15 code + tests +
-   entry 09 label + v6 findings). Same `--no-ff` + push pattern as the last
-   merge. Whether to hold `rule15-*` for a 13 fix first is a judgment call —
-   rule 15 itself is clean and regression-free; only the headline number
-   moved (22→21) because of independent 13 variance.
-
-2. **Case 13 — precedence gap is now non-deferrable if 22+/23 is the goal.**
+1. **Case 13 — precedence gap is now non-deferrable if 22+/23 is the goal.**
    Deferred since `eval-v3-findings.md`; v6 forces it. `sweeping_claim_check`
    fires on 13 ("Six Agents" still in `docs/project-state.md`, inside the
    commit's own audit-log prose → `claim_holds: false`), pulling the model
@@ -65,17 +58,11 @@ this one is the living pointer.
    to ignore hits inside the diff's own added log lines; (c) review whether
    `Pending` is the right golden for 13.
 
-3. **Raise `call_claude`'s default `claude -p` timeout (120 → 180 s).**
-   Entry 13's 33 KB diff (largest in the set) timed out run 1 of the v6
-   eval; had to re-run it 3× at `timeout=300`. One-line fix in
-   `prompt_contract_layer.py`; not done this session (out of the rule-15
-   ask).
-
-4. **Case 15.** Unchanged long-standing miss — sweeping claim lives in
+2. **Case 15.** Unchanged long-standing miss — sweeping claim lives in
    diff/log content, not the commit message, outside the sweeping-claim
    check's reach.
 
-5. **Eval cost.** The v4 self-consistency run was 39 `claude -p` calls.
+3. **Eval cost.** The v4 self-consistency run was 39 `claude -p` calls.
    Cheaper alternative not yet taken: freeze `prompt_contract_layer`
    outputs and re-run only the validator stage to isolate its effect from
    model variance.

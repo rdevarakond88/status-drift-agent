@@ -15,9 +15,13 @@ this one is the living pointer.
     - `rule15-ui-copy-removal` — NEW deterministic check + rule 15 (this
       session). All 3 unit suites green. **Full eval held** pending the
       entry 09 golden-label decision (open decision 2).
-- **Last session:** 2026-09-09 (session 3) — built rule 15: deterministic
-  detection of an undisclosed removal of user-visible on-screen text, with
-  a code-level `Flagged` override. Fires on exactly one golden entry (09).
+- **Last session:** 2026-09-09/10 (session 3) — built rule 15
+  (deterministic undisclosed-UI-copy-removal check + `Flagged` override),
+  flipped golden entry 09 → `Flagged` (architect-confirmed), ran the v6
+  self-consistency eval. **21/23**, misses 13 + 15. Rule 15 works
+  perfectly (09 now 3/3 `Flagged` deterministically, zero false
+  positives); entry 13 regressed on its own long-standing rule 3/9-vs-13
+  coin-flip, unrelated to rule 15. See `docs/eval-v6-findings.md`.
 
 ## Status of the work
 
@@ -33,34 +37,39 @@ this one is the living pointer.
 | Full 23-entry eval since `10e5af6`/`c36a518` landed | DONE — v5 self-consistency run, **22/23**, `docs/eval-v5-findings.md` |
 | Entry 14 deterministic `Flagged` via rule 14 | CONFIRMED — 3/3 Flagged; `overclaim_check.detected` True deterministically, `enforce_deterministic_rules` forces Flagged for any model status |
 | Golden entry 03 label | CORRECTED — `Pending` → `Code complete`, `correct_agent_response` rewritten to match 01/04–08/10 |
-| Rule 15 — undisclosed UI-copy removal check (`build_ui_copy_removal_check` + prompt wiring + override) | DONE (uncommitted at time of writing) — 3 unit suites green (validator 20, overclaim 14, ui-copy-removal 22). False-positive sweep: fires on entry 09 only. |
+| Rule 15 — undisclosed UI-copy removal check (`build_ui_copy_removal_check` + prompt wiring + override) | DONE — committed `55f483a`. 3 unit suites green (validator 20, overclaim 14, ui-copy-removal 22). Sweep: fires on entry 09 only. |
+| Golden entry 09 label | FLIPPED — `Code complete` → `Flagged`, committed `fcd8b83` (architect-confirmed). |
+| v6 self-consistency eval | DONE — **21/23**, misses 13 + 15. `docs/eval-v6-findings.md`. |
 | Merge `eval-v5-overclaim-verification` to `main` | **NOT DONE** — see open decision 1 |
-| Merge `rule15-ui-copy-removal` to `main` | **NOT DONE** — after decisions 1 + 2 |
-| Full 23-entry eval measuring rule 15 | **HELD** — waiting on the entry 09 golden-label decision so 09 + 13 confirm together |
+| Merge `rule15-ui-copy-removal` to `main` | **NOT DONE** — after decision 1 (+ optionally decision 2) |
 
 ## Open decisions for next session (in priority order)
 
-1. **Merge `eval-v5-overclaim-verification` into `main` and push.** Branch
-   holds only docs + the entry 03 label + refreshed eval output — no code
-   change. Same `--no-ff` + push pattern as the last merge. Then rebase /
-   merge `rule15-ui-copy-removal` on top.
+1. **Merge both stacked branches into `main` and push.** Order:
+   `eval-v5-overclaim-verification` first (docs + entry 03 label + eval
+   output, no code), then `rule15-ui-copy-removal` (rule 15 code + tests +
+   entry 09 label + v6 findings). Same `--no-ff` + push pattern as the last
+   merge. Whether to hold `rule15-*` for a 13 fix first is a judgment call —
+   rule 15 itself is clean and regression-free; only the headline number
+   moved (22→21) because of independent 13 variance.
 
-2. **Entry 09 golden label — the rule 15 build forces the decision.** Rule
-   15 now makes entry 09 deterministically `Flagged` (its diff silently
-   removes the visible SMS-hint line; commit message says only "Add info
-   icon…"). Entry 09's golden is currently `Code complete`, so **the new
-   rule guarantees a miss on 09 until the golden flips to `Flagged`**. The
-   user's instruction was "flag it" for undisclosed removal of user-facing
-   copy, which implies `Flagged` is the intended answer for 09. Recommended:
-   flip `golden-set/09.json` `verified_status` → `Flagged` and rewrite
-   `correct_agent_response` (same move as entry 03 this session). Needs the
-   architect's explicit confirmation before the held eval runs.
+2. **Case 13 — precedence gap is now non-deferrable if 22+/23 is the goal.**
+   Deferred since `eval-v3-findings.md`; v6 forces it. `sweeping_claim_check`
+   fires on 13 ("Six Agents" still in `docs/project-state.md`, inside the
+   commit's own audit-log prose → `claim_holds: false`), pulling the model
+   to `Flagged` under rule 9; rule 13 (open sub-items #8/#9) pulls to
+   `Pending`; no precedence stated → ~coin-flip (v4 2/3 Pending, v5 3/3
+   Pending, v6 2/3 Flagged). Options in `eval-v6-findings.md`: (a) state a
+   precedence (rule 13 wins when the "mismatch" is a sweeping-claim hit on
+   the commit's own tracking-log text); (b) tighten `sweeping_claim_check`
+   to ignore hits inside the diff's own added log lines; (c) review whether
+   `Pending` is the right golden for 13.
 
-3. **Case 13 — NOT addressed by rule 15.** Its diff touches only
-   `.md`/`.json`/`.jsonl`; no on-screen copy, so rule 15 correctly does not
-   fire. 13 is 3/3 `Pending` in v5 (matches golden). Its latent instability
-   is the rule 3 vs rule 13 precedence gap (contract states no precedence),
-   diagnosed in `eval-v3-findings.md`, still unresolved — separate work.
+3. **Raise `call_claude`'s default `claude -p` timeout (120 → 180 s).**
+   Entry 13's 33 KB diff (largest in the set) timed out run 1 of the v6
+   eval; had to re-run it 3× at `timeout=300`. One-line fix in
+   `prompt_contract_layer.py`; not done this session (out of the rule-15
+   ask).
 
 4. **Case 15.** Unchanged long-standing miss — sweeping claim lives in
    diff/log content, not the commit message, outside the sweeping-claim

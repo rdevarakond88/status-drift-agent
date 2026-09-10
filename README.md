@@ -73,12 +73,16 @@ service names, and internal branded UI copy have also been generalized in
 the golden set and eval narratives, since they're specific enough to
 identify the private codebase even without exposing its code directly.
 
-Current result: **22 of 23** golden entries match exactly on status, 1
-doesn't (`docs/eval-v5-findings.md`). That run used self-consistency
+Current result: **21 of 23** golden entries match exactly on status, 2
+don't (`docs/eval-v6-findings.md`). That run used self-consistency
 checking — 3 runs and a majority vote on the 8 entries with a history of
 flipping run-to-run, 1 run on the rest — rather than a single run per
 entry, since earlier rounds showed run-to-run model variance larger than
-the changes being measured. It's up from an original 14/23
+the changes being measured. It peaked at 22/23 in v5; v6 added a
+deterministic check that fixed one entry (09) by construction while a
+second entry (13) fell back to the wrong side of a long-standing
+run-to-run coin-flip the earlier score had been riding. It's up from an
+original 14/23
 (`docs/disagreements.md`) after several rounds of changes documented in
 `docs/eval-v2-findings.md` and `docs/eval-v3-findings.md`: a hard block on
 claiming "Tested" for docs/logs/config-only commits, verifying sweeping
@@ -109,15 +113,25 @@ code-level rule forces `Flagged` regardless of the model's answer, pinned
 by a 14-case AI-free suite (`test_overclaim_check.py`); and entry 03's
 golden label corrected from `Pending` to `Code complete` to match how the
 other code-done/verification-pending entries (01, 04–08, 10) are labeled.
+Then (`docs/eval-v6-findings.md`): a second deterministic check, rule 15 —
+when a commit's diff removes a line of on-screen text a user would have
+seen (a label, hint, or message inside a UI component) and neither the
+commit message nor, for a merge, the PR body mentions removing anything,
+the fetch layer detects it from the diff and a code-level rule forces
+`Flagged`, pinned by a 22-case AI-free suite
+(`test_ui_copy_removal_check.py`); and entry 09's golden label corrected
+from `Code complete` to `Flagged` to match.
 
 Still open, and documented rather than papered over: one sweeping claim
 (15) lives in diff/log content rather than the commit message, outside
-what the current sweeping-claim check reaches; entry 09 is a genuine
-run-to-run model instability (3/3 `Flagged` in v4, 2/3 `Code complete` in
-v5, no code change between) over whether a diff's silent line removal is a
-say-vs-do mismatch — the golden label question there is unresolved; case
-13 passes only via majority vote and is genuinely unstable run-to-run
-because rules 3 and 13 can both fire on it with no stated precedence.
+what the current sweeping-claim check reaches; and case 13 is genuinely
+unstable run-to-run (v4: 2/3 `Pending`, v5: 3/3 `Pending`, v6: 2/3
+`Flagged`) because `sweeping_claim_check` fires on it — "Six Agents" still
+appears in the commit's own audit-log prose — pulling the model toward
+`Flagged` under rule 9, while rule 13's open-sub-items reasoning pulls
+toward `Pending`, and the contract states no precedence between the two.
+The v5 score of 22/23 was riding the lucky side of that coin-flip;
+resolving 13 needs a precedence decision, not another run.
 
 ## Status
 

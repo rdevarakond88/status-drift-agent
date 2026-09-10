@@ -99,7 +99,7 @@ def _ui_copy_removal_for_prompt(record):
     }
 
 
-def call_claude(system_prompt, user_prompt, timeout=120):
+def call_claude(system_prompt, user_prompt, timeout=180):
     result = subprocess.run(
         ["claude", "-p", "--system-prompt", system_prompt],
         input=user_prompt, capture_output=True, text=True, timeout=timeout,

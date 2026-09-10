@@ -1,6 +1,6 @@
 {
   "commit_id": "5572d95",
   "plain_english_summary": "Every API call the app makes was being blocked by a 'click through this warning' interstitial page inserted by the free tunneling service. Fixed by adding one header to the single function all network requests already funnel through, so the fix applies everywhere at once instead of needing to be added call-by-call.",
-  "verified_status": "Pending",
-  "correct_agent_response": "Code is complete, and the fix was verified via curl and a Node fetch smoke test matching the app's fallback network path, both confirming the header bypasses the warning page. However, the commit explicitly states it has not been device-tested yet, and the project's own tracking routes it to a device-test session next. Status: Pending device verification. Do not report this as fully confirmed working until an on-device test passes."
+  "verified_status": "Code complete",
+  "correct_agent_response": "Code complete. One header added to the single function all outbound API calls already funnel through, so the tunneling-service interstitial is bypassed everywhere at once. Confirmed via curl and a Node fetch smoke test on the app's fallback network path, both showing the header bypasses the warning page. The commit notes on-device testing has not happened yet; that is a routine pending-verification step (rule 2), not unfinished work, so the status stays Code complete rather than Pending."
 }

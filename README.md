@@ -73,8 +73,8 @@ service names, and internal branded UI copy have also been generalized in
 the golden set and eval narratives, since they're specific enough to
 identify the private codebase even without exposing its code directly.
 
-Current result: **20 of 23** golden entries match exactly on status, 3
-don't (`docs/eval-v4-findings.md`). That run used self-consistency
+Current result: **22 of 23** golden entries match exactly on status, 1
+doesn't (`docs/eval-v5-findings.md`). That run used self-consistency
 checking — 3 runs and a majority vote on the 8 entries with a history of
 flipping run-to-run, 1 run on the rest — rather than a single run per
 entry, since earlier rounds showed run-to-run model variance larger than
@@ -102,16 +102,22 @@ phrases. The `not yet` patch and then a general verification-context
 carve-out (`docs/eval-v3-findings.md`, `docs/eval-v4-findings.md`) fixed
 that class; a permanent 20-case AI-free unit suite
 (`test_status_consistency_validator.py`) pins the exact real sentences
-that broke.
+that broke. Most recently (`docs/eval-v5-findings.md`): a deterministic
+overclaim check — when a message claims a feature was "added" but git
+history shows it already existed, the fetch layer detects it and a
+code-level rule forces `Flagged` regardless of the model's answer, pinned
+by a 14-case AI-free suite (`test_overclaim_check.py`); and entry 03's
+golden label corrected from `Pending` to `Code complete` to match how the
+other code-done/verification-pending entries (01, 04–08, 10) are labeled.
 
-Still open, and documented rather than papered over: two entries (03, 09)
-are stable disagreements between the model and the hand-written golden
-label — worth a review of which is right, the same review that corrected
-entries 11 and 14 earlier; one sweeping claim (15) lives in diff/log
-content rather than the commit message, outside what the current
-sweeping-claim check reaches; case 13 passes only via majority vote and is
-genuinely unstable run-to-run because rules 3 and 13 can both fire on it
-with no stated precedence.
+Still open, and documented rather than papered over: one sweeping claim
+(15) lives in diff/log content rather than the commit message, outside
+what the current sweeping-claim check reaches; entry 09 is a genuine
+run-to-run model instability (3/3 `Flagged` in v4, 2/3 `Code complete` in
+v5, no code change between) over whether a diff's silent line removal is a
+say-vs-do mismatch — the golden label question there is unresolved; case
+13 passes only via majority vote and is genuinely unstable run-to-run
+because rules 3 and 13 can both fire on it with no stated precedence.
 
 ## Status
 

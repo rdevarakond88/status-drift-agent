@@ -30,7 +30,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from fetch_layer import build_sweeping_claim_check, detect_sweeping_claims
+from fetch_layer import (
+    build_sweeping_claim_check,
+    claims_from_added_prose,
+    detect_sweeping_claims,
+)
 
 
 # -- hermetic git repo helpers ----------------------------------------------
@@ -110,6 +114,51 @@ SWEEPING_MSG = (
     'it entirely so the doc no longer contradicts itself.'
 )
 
+# -- entry-15 shape: the sweeping claim is in the commit's OWN added prose,
+#    not the commit message. A merge whose auto-generated message says
+#    nothing sweeping, but which appends a "Last Updated" note asserting a
+#    dead URL is gone from a directory - while it still sits in a file the
+#    merge never touched.
+
+API_WITH_DEAD_URL = """\
+const BASE_URL = 'https://dead-api.example.com/v1';
+export function client() { return fetch(BASE_URL); }
+"""
+API_CLEAN = """\
+import { API_BASE_URL } from './config';
+export function client() { return fetch(API_BASE_URL); }
+"""
+
+# A pre-existing doc that also mentions the dead URL, in a cert-pinning
+# comment. The entry-15 commit never touches this file.
+PINNING_DOC = """\
+# TLS pinning notes
+
+The cert chain was issued for dead-api.example.com; pin the intermediate
+so a swapped leaf still validates.
+"""
+
+STATUS_BEFORE = """\
+# Status
+
+**Last Updated:** 2026-05-30 (initial deploy).
+"""
+# The commit adds this line - a status note that makes the sweeping claim.
+STATUS_AFTER = STATUS_BEFORE + (
+    "\n**Last Updated:** 2026-08-03 (merged the fix. Post-merge confirmed via "
+    "`git grep` that `dead-api.example.com` no longer appears in `main`'s "
+    "`src/api/`.)\n"
+)
+# Same shape, but a pure scope-intensifier in the added prose - NOT a claim
+# that anything is absent. This is the entry-13 regression guard: "entirely"
+# next to a backticked filename must not be read as "that file is gone".
+STATUS_AFTER_INTENSIFIER = STATUS_BEFORE + (
+    "\n**Last Updated:** 2026-08-03 (merged the fix. The API client now "
+    "defers entirely to `src/api/config.ts` for the base URL.)\n"
+)
+
+MERGE_MSG_PLAIN = "Merge branch 'fix/dead-url' into main"
+
 
 # -- pure detect_sweeping_claims cases (no git) ----------------------------
 
@@ -131,6 +180,53 @@ def _check_detect():
         failures.append(f"[detect] sweeping message parsed wrong: {kw} {texts}")
     else:
         print("  ok   detect        sweeping keyword + quoted text -> both surfaced")
+
+    return failures
+
+
+# -- pure claims_from_added_prose cases (no git) -------------------------
+
+def _check_added_prose():
+    failures = []
+
+    # 1. entry-15 phrasing: distinctive token just before an absence phrase
+    claimed, phrases = claims_from_added_prose([
+        "Post-merge confirmed via `git grep` that `dead-api.example.com` "
+        "no longer appears in `main`'s `src/api/`."
+    ])
+    if claimed != ["dead-api.example.com"] or "no longer appears" not in phrases:
+        failures.append(f"[prose] entry-15 phrasing not extracted: {claimed} {phrases}")
+    else:
+        print("  ok   prose         '`x.y` no longer appears' -> claims ['x.y']")
+
+    # 2. scope intensifier, NOT an absence claim -> nothing (entry-13 guard)
+    claimed, _ = claims_from_added_prose([
+        "The gate now defers entirely to `infra-session-gate.sh` for path checks.",
+        "Corrected the `Six Agents` header completely.",
+    ])
+    if claimed:
+        failures.append(f"[prose] scope intensifier wrongly treated as absence claim: {claimed}")
+    else:
+        print("  ok   prose         'defers entirely to `x.sh`' -> no claim (intensifier)")
+
+    # 3. absence phrase but only a bare word before it -> nothing (greps to noise)
+    claimed, _ = claims_from_added_prose([
+        "The `main` branch reference no longer appears in the routing table.",
+    ])
+    if claimed:
+        failures.append(f"[prose] bare-word token wrongly kept: {claimed}")
+    else:
+        print("  ok   prose         bare word before absence phrase -> no claim")
+
+    # 4. machine-log / non-prose content is never passed here in practice,
+    #    but a line with no quoted token must be a no-op
+    claimed, phrases = claims_from_added_prose([
+        "the onrender.com url no longer appears in src/api after the merge",
+    ])
+    if claimed or phrases:
+        failures.append(f"[prose] unquoted token wrongly extracted: {claimed} {phrases}")
+    else:
+        print("  ok   prose         absence phrase with no quoted token -> no claim")
 
     return failures
 
@@ -232,6 +328,74 @@ def _check_sweeping(tmp):
         print("  ok   sweeping      hit on an unchanged pre-existing line -> "
               "still counts, claim_holds False")
 
+    # E. THE ENTRY-15 CASE: the sweeping claim is in a line THIS COMMIT ADDS
+    #    to a status doc, not in the (plain) commit message. The claimed URL
+    #    is cleaned from src/api/ but still lives in a pinning-notes doc the
+    #    commit never touches -> must be detected AND claim_holds False.
+    repo = _init_repo(tmp)
+    _commit(
+        repo,
+        {
+            "src/api/client.ts": API_WITH_DEAD_URL,
+            "docs/tls-pinning.md": PINNING_DOC,
+            "docs/status.md": STATUS_BEFORE,
+            "README.md": "app",
+        },
+        "seed",
+    )
+    sha = _commit(
+        repo,
+        {"src/api/client.ts": API_CLEAN, "docs/status.md": STATUS_AFTER},
+        MERGE_MSG_PLAIN,
+    )
+    res = build_sweeping_claim_check(repo, sha, MERGE_MSG_PLAIN)
+    ok = res["detected"] and "no longer appears" in res["keywords_matched"]
+    v = next((x for x in res["verifications"] if x["claimed_text"] == "dead-api.example.com"), None)
+    hit_files = {h.split(":", 2)[1] for h in v["still_found_at"]} if v else set()
+    if not (ok and v and not v["claim_holds"] and hit_files == {"docs/tls-pinning.md"}):
+        failures.append(
+            f"[sweeping] entry-15 shape (claim in the commit's own added status "
+            f"line, not the message) not detected/verified: {res}"
+        )
+    else:
+        print("  ok   sweeping      entry 15: claim in commit's OWN added status "
+              "line -> detected, still in an untouched doc -> claim_holds False")
+
+    # F. NO REGRESSION: same shape, but the added prose is a scope
+    #    intensifier ("defers entirely to `src/api/config.ts`"), not an
+    #    absence claim, and the message says nothing sweeping -> not detected.
+    repo = _init_repo(tmp)
+    _commit(
+        repo,
+        {"src/api/client.ts": API_WITH_DEAD_URL, "docs/status.md": STATUS_BEFORE, "README.md": "app"},
+        "seed",
+    )
+    sha = _commit(
+        repo,
+        {"src/api/client.ts": API_CLEAN, "docs/status.md": STATUS_AFTER_INTENSIFIER},
+        MERGE_MSG_PLAIN,
+    )
+    res = build_sweeping_claim_check(repo, sha, MERGE_MSG_PLAIN)
+    if res["detected"]:
+        failures.append(
+            f"[sweeping] scope intensifier in added prose wrongly triggered "
+            f"the check (entry-13-in-reverse regression): {res}"
+        )
+    else:
+        print("  ok   sweeping      intensifier in added prose + plain message "
+              "-> not detected")
+
+    # G. NO REGRESSION: a plain commit message and no claim-bearing added
+    #    prose at all -> the check stays silent, exactly as before this path.
+    repo = _init_repo(tmp)
+    _commit(repo, {"src/api/client.ts": API_WITH_DEAD_URL, "README.md": "app"}, "seed")
+    sha = _commit(repo, {"src/api/client.ts": API_CLEAN}, MERGE_MSG_PLAIN)
+    res = build_sweeping_claim_check(repo, sha, MERGE_MSG_PLAIN)
+    if res != {"detected": False, "keywords_matched": [], "verifications": []}:
+        failures.append(f"[sweeping] plain commit, no sweeping claim anywhere -> not silent: {res}")
+    else:
+        print("  ok   sweeping      plain message + no claim in added prose -> silent")
+
     return failures
 
 
@@ -286,12 +450,58 @@ def _check_real_entry_13():
     return failures
 
 
+def _check_real_entry_15():
+    repo = os.environ.get("EVAL_TARGET_REPO")
+    if not repo or not Path(repo, ".git").exists():
+        print("  skip REGRESSION    entry 15 (set EVAL_TARGET_REPO=/home/rdeva/medrecord to run)")
+        return []
+    repo = Path(repo)
+    sha = "6aa36a6"
+    try:
+        subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", sha],
+                       check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        print(f"  skip REGRESSION    entry 15 ({sha} not in {repo})")
+        return []
+
+    real_msg = subprocess.run(
+        ["git", "-C", str(repo), "log", "-1", "--format=%s%n%n%b", sha],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    res = build_sweeping_claim_check(repo, sha, real_msg)
+    failures = []
+    # The commit message itself has no sweeping language - detection here
+    # can only come from the "Last Updated" note the commit adds to
+    # docs/project-state.md.
+    if detect_sweeping_claims(real_msg)[0]:
+        print("  note REGRESSION    entry 15 message now has sweeping language; test assumption stale")
+    v = next((x for x in res["verifications"] if x["claimed_text"] == "onrender.com"), None)
+    if not res["detected"] or v is None:
+        failures.append(f"[REGRESSION entry 15] claim in the added status note not detected: {res}")
+    elif v["claim_holds"]:
+        failures.append(
+            f"[REGRESSION entry 15] 'onrender.com' claimed gone from src/api/ but "
+            f"verification says it holds - should still be found in src/api/pinnedFetch.ts: {v}"
+        )
+    elif not any("src/api/pinnedFetch.ts" in h for h in v["still_found_at"]):
+        failures.append(
+            f"[REGRESSION entry 15] claim_holds False but pinnedFetch.ts (the "
+            f"golden's cited leftover) is not in still_found_at: {v['still_found_at'][:5]}"
+        )
+    else:
+        print("  ok   REGRESSION     entry 15: claim from the commit's own added "
+              "status note -> detected, still in src/api/pinnedFetch.ts -> claim_holds False")
+    return failures
+
+
 def _run():
     with tempfile.TemporaryDirectory() as tmp:
         failures = (
             _check_detect()
+            + _check_added_prose()
             + _check_sweeping(tmp)
             + _check_real_entry_13()
+            + _check_real_entry_15()
         )
     print()
     if failures:

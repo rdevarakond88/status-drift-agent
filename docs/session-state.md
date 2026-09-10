@@ -8,20 +8,23 @@ this one is the living pointer.
 
 ## Resuming from
 
-- **Branch:** work is on `main`. Both feature branches merged `--no-ff` and
-  **pushed** on 2026-09-10:
-    - `eval-v5-overclaim-verification` → merge `2bcffcd`
-    - `rule15-ui-copy-removal` → merge `ad65497`
-    - then `86ed931` on `main` direct: `call_claude` timeout 120 → 180 s.
-  Both branches kept for reference, not deleted. Do new work off `main`.
-- **Last session:** 2026-09-09/10 (session 3) — built rule 15
-  (deterministic undisclosed-UI-copy-removal check + `Flagged` override),
-  flipped golden entry 09 → `Flagged` (architect-confirmed), ran the v6
-  self-consistency eval (**21/23**, misses 13 + 15), then merged the v5
-  and rule-15 branches into `main` and pushed. Rule 15 works perfectly
-  (09 now 3/3 `Flagged` deterministically, zero false positives); entry 13
-  regressed on its own long-standing rule 3/9-vs-13 coin-flip, unrelated
-  to rule 15. See `docs/eval-v6-findings.md`.
+- **Branch:** `fix-sweeping-claim-own-lines` (session 4, 2026-09-10),
+  committed, **not merged, not pushed** — awaiting architect review.
+  Prior state: `main` @ `86ed931`, both session-3 branches merged and
+  pushed. Do the merge decision first (see Open decisions).
+- **Last session:** 2026-09-10 (session 4) — fixed the entry-13 false
+  positive in `build_sweeping_claim_check` (fetch layer, not the prompt):
+  the repo grep for stale text a sweeping claim says is gone was counting
+  hits on lines the commit itself just added (a changelog line describing
+  its own fix). New `_added_line_numbers_by_path` parses the commit's own
+  diff; hits on added lines no longer count. `test_sweeping_claim_check.py`
+  added (9 AI-free cases + gated real entry-13 regression). All 4 unit
+  suites green. v7 self-consistency eval: **22/23** (only miss: 15).
+  Entry 13 now **6/6 `Pending`** (3 in the eval + 3 targeted re-check) —
+  was a documented coin-flip since v3. Entries 01/06 showed 2/3 in the
+  eval run but 3/3 `Code complete` on targeted re-check — model noise, not
+  this change (neither triggers the sweeping-claim check). See
+  `docs/eval-v7-findings.md`.
 
 ## Status of the work
 
@@ -43,29 +46,32 @@ this one is the living pointer.
 | Merge `eval-v5-overclaim-verification` to `main` | DONE — `--no-ff` merge `2bcffcd`, pushed |
 | Merge `rule15-ui-copy-removal` to `main` | DONE — `--no-ff` merge `ad65497`, pushed |
 | `call_claude` timeout 120 → 180 s | DONE — `86ed931` on `main`, pushed |
+| Case 13 fix — `sweeping_claim_check` ignores the commit's own added lines | DONE — session 4, branch `fix-sweeping-claim-own-lines`, committed. `test_sweeping_claim_check.py` added. v7 eval **22/23**, entry 13 6/6 `Pending`. NOT merged/pushed. |
 
 ## Open decisions for next session (in priority order)
 
-1. **Case 13 — precedence gap is now non-deferrable if 22+/23 is the goal.**
-   Deferred since `eval-v3-findings.md`; v6 forces it. `sweeping_claim_check`
-   fires on 13 ("Six Agents" still in `docs/project-state.md`, inside the
-   commit's own audit-log prose → `claim_holds: false`), pulling the model
-   to `Flagged` under rule 9; rule 13 (open sub-items #8/#9) pulls to
-   `Pending`; no precedence stated → ~coin-flip (v4 2/3 Pending, v5 3/3
-   Pending, v6 2/3 Flagged). Options in `eval-v6-findings.md`: (a) state a
-   precedence (rule 13 wins when the "mismatch" is a sweeping-claim hit on
-   the commit's own tracking-log text); (b) tighten `sweeping_claim_check`
-   to ignore hits inside the diff's own added log lines; (c) review whether
-   `Pending` is the right golden for 13.
+1. **Merge `fix-sweeping-claim-own-lines` to `main`.** Session 4's entry-13
+   fix. `--no-ff` merge + push, same as the session-3 branches, once the
+   architect has reviewed. This was option (b) from `eval-v6-findings.md`;
+   options (a) prompt-contract precedence and (c) relabel entry 13 were
+   not needed — the ambiguity was a fetch-layer artifact. Details in
+   `docs/eval-v7-findings.md`.
 
-2. **Case 15.** Unchanged long-standing miss — sweeping claim lives in
-   diff/log content, not the commit message, outside the sweeping-claim
-   check's reach.
+2. **Case 15 — now the sole miss.** Unchanged long-standing miss: sweeping
+   claim lives in diff/log content, not the commit message, so
+   `detect_sweeping_claims` never sees it. Closing it means reading claims
+   out of added diff content (real false-positive risk) or accepting
+   22/23 as this golden set's ceiling.
 
-3. **Eval cost.** The v4 self-consistency run was 39 `claude -p` calls.
+3. **Eval cost.** The self-consistency run is 39 `claude -p` calls.
    Cheaper alternative not yet taken: freeze `prompt_contract_layer`
    outputs and re-run only the validator stage to isolate its effect from
    model variance.
+
+4. **Entries 01/06 variance.** Both drifted 1/3 to `Pending` in the v7 run
+   (3/3 `Code complete` on re-check). Persistent low-grade noise on the
+   "open sub-items → is it done?" boundary. Not blocking; note if it
+   worsens.
 
 ## Re-run commands (for reference — a session can just run these)
 
@@ -74,6 +80,7 @@ cd /home/rdeva/status-translation-agent
 python3 test_status_consistency_validator.py                                    # validator unit suite, 20 cases, fast
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 test_overclaim_check.py          # overclaim-check unit suite, 14 cases, fast
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 test_ui_copy_removal_check.py    # ui-copy-removal unit suite, 22 cases, fast
+EVAL_TARGET_REPO=/home/rdeva/medrecord python3 test_sweeping_claim_check.py     # sweeping-claim unit suite, 9 cases + entry-13 regression, fast
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_golden_eval.py         # full eval, 1x/entry, ~10-20 min
 python3 score_golden_eval.py                                              # score results.jsonl
 python3 score_golden_eval.py eval_output/results-prefix-baseline.jsonl    # score the pre-fix baseline

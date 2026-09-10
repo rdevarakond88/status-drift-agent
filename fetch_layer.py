@@ -65,15 +65,93 @@ def detect_sweeping_claims(commit_message):
     return matched_keywords, claimed_texts
 
 
-def verify_claim_against_repo(repo, sha, claimed_text):
+_HUNK_HEADER_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)")
+
+
+def _added_line_numbers_by_path(repo, sha):
+    """{path: {new-side line numbers this commit adds}} from the commit's own
+    unified diff. Used to discount sweeping-claim grep hits that land on a
+    line the commit itself just wrote - e.g. a log entry describing the very
+    fix it makes (golden entry 13: the commit fixes a stale 'Six Agents'
+    heading and, in the same diff, adds a changelog line mentioning
+    'Six Agents' as the thing it changed). Only pre-existing content should
+    count as a leftover. First-parent scope for merges, matching the rest of
+    the layer."""
+    parents = subprocess.run(
+        ["git", "-C", str(repo), "log", "-1", "--format=%P", sha],
+        capture_output=True, text=True,
+    ).stdout.split()
+    args = ["show", "--format=", "-p"]
+    if len(parents) > 1:
+        args.append("--first-parent")
+    args.append(sha)
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True,
+    )
+    added = {}
+    path = None
+    new_lineno = 0
+    for line in result.stdout.splitlines():
+        if line.startswith("+++ "):
+            p = line[4:].strip()
+            if p == "/dev/null":
+                path = None
+            elif p.startswith(("a/", "b/")):
+                path = p[2:]
+            else:
+                path = p
+        elif line.startswith("--- "):
+            continue
+        elif line.startswith("@@"):
+            m = _HUNK_HEADER_RE.match(line)
+            new_lineno = int(m.group(1)) if m else 0
+        elif line.startswith("+"):
+            if path is not None:
+                added.setdefault(path, set()).add(new_lineno)
+            new_lineno += 1
+        elif line.startswith("-"):
+            continue  # old-side only, new-side line number unchanged
+        elif line.startswith(" "):
+            new_lineno += 1
+        # any other line ("\ No newline at end of file", etc): ignore
+    return added
+
+
+def _grep_hit_is_own_added_line(hit, tree_ref, added_lines):
+    """A `git grep -n <ref>` line is `<ref>:<path>:<lineno>:<text>`. True if
+    that (path, lineno) is one this commit added."""
+    prefix = tree_ref + ":"
+    rest = hit[len(prefix):] if hit.startswith(prefix) else hit
+    parts = rest.split(":", 2)
+    if len(parts) < 3:
+        return False
+    path, lineno_str = parts[0], parts[1]
+    try:
+        lineno = int(lineno_str)
+    except ValueError:
+        return False
+    return lineno in added_lines.get(path, set())
+
+
+def verify_claim_against_repo(repo, sha, claimed_text, added_lines=None):
     """Greps the repo tree as of sha (not just this commit's diff) for the
     literal claimed text, so a claim about the whole codebase gets checked
-    against the whole codebase, not just what the diff happens to show."""
+    against the whole codebase, not just what the diff happens to show.
+
+    `added_lines` ({path: {lineno}}, from _added_line_numbers_by_path) drops
+    hits that fall on a line this commit itself just added - those are the
+    commit describing its own fix, not stale text it failed to clean up."""
     result = subprocess.run(
         ["git", "-C", str(repo), "grep", "-n", "-F", claimed_text, sha],
         capture_output=True, text=True,
     )
-    still_found_at = [line for line in result.stdout.splitlines() if line]
+    still_found_at = []
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        if added_lines and _grep_hit_is_own_added_line(line, sha, added_lines):
+            continue
+        still_found_at.append(line)
     return {
         "claimed_text": claimed_text,
         "still_found_at": still_found_at,
@@ -85,7 +163,10 @@ def build_sweeping_claim_check(repo, sha, commit_message):
     matched_keywords, claimed_texts = detect_sweeping_claims(commit_message)
     if not matched_keywords:
         return {"detected": False, "keywords_matched": [], "verifications": []}
-    verifications = [verify_claim_against_repo(repo, sha, text) for text in claimed_texts]
+    added_lines = _added_line_numbers_by_path(repo, sha)
+    verifications = [
+        verify_claim_against_repo(repo, sha, text, added_lines) for text in claimed_texts
+    ]
     return {
         "detected": True,
         "keywords_matched": matched_keywords,

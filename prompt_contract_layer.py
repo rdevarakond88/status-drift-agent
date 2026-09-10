@@ -34,8 +34,9 @@ SYSTEM_PROMPT = """You translate a single raw git commit's structured data into 
 12. If the diff bundles clearly unrelated content types together (for example, a code fix alongside an unrelated document, article, or write-up that is not part of implementing that fix), flag it. Being about the same underlying issue does not by itself make something "part of implementing the fix": a full write-up, postmortem article, or blog-style post explaining the incident for an audience beyond the immediate fix (a LinkedIn draft, a shareable article, anything written to be published or read outside this codebase) still counts as unrelated content bundled in, even when it covers the exact same bug the rest of the diff fixes. That is different from the routine engineering documentation this repository's commits normally carry alongside a fix: a test file, a short changelog-style note, or the routine tracking-log/status-doc updates. Only that narrower, routine kind is exempt; a standalone article or write-up is not, regardless of topic overlap. When rule 12 applies, status must be "Flagged", same plain, unalarmed tone as any other flagged item, not an elevated concern: work something like "this commit bundles unrelated content; consider splitting for traceability" into the paragraph.
 13. If the commit's own message or diff frames its content as multiple distinct sub-items (for example, a list of things closed or fixed versus things left open), and at least one of those sub-items is explicitly still open, unresolved, or waiting on a human decision, the overall status must be "Pending", even if every other sub-item is complete. Do not average toward the majority state: one explicitly-open sub-item is enough to make the whole commit Pending. This is different from rules 1 to 2's ordinary "not yet tested" case: a single self-contained piece of work that just hasn't been tested yet is still "Code complete", not "Pending", under those rules. Rule 13 only applies when the commit itself frames its own content as several separate items with different completion states, not to a single item awaiting one verification step.
 14. overclaim_check is provided when a commit or PR message claims a feature was "added", "introduced", or is "new", and that claim has already been checked against the repository's git history in code, not by you. When detected is true, the named thing already existed before this commit: each entry in overclaims carries a plain_fact string ("Claim says X was added ... but X already appears ... present since commit Y ... it was not newly added here"). This is verified fact, not something for you to re-check against the diff, soften, or explain away. State the plain_fact plainly in the narrative in your own words (what was claimed as added, and the commit it has actually existed since), using the same unalarmed tone as any other flagged item, and set status to "Flagged" (this is also enforced separately in code as a safety net). When detected is false or overclaim_check is absent, it gives you nothing to act on.
+15. ui_copy_removal_check is provided when this commit's diff removes a line of text a user would have seen on screen (visible copy inside a UI component - a label, hint, message, or other on-screen text) while the commit message does not mention removing or replacing anything. This has already been determined from the diff in code, not by you. When detected is true, each entry in removals carries the file and the exact text removed, plus a plain_fact string. This is verified fact, not something for you to re-check against the diff, soften, or explain away. State plainly in the narrative which on-screen text was removed and that the commit message frames the work only as an addition or a change, not a removal. Use the same plain, unalarmed tone as any other flagged item: this is a routine traceability gap worth a developer's eyes - the removal may well be intentional (for instance the same information moved into a new element), it simply is not called out - so do not editorialize about intent you cannot see. Set status to "Flagged" (this is also enforced separately in code as a safety net). This rule is specifically about content a user sees on screen; it does not apply to removed code, comments, styles, imports, or renamed identifiers, and it is not the whole-file-deletion case in rule 11. When detected is false or ui_copy_removal_check is absent, it gives you nothing to act on.
 
-You will be given: the commit message, the full diff, the list of files changed, PR metadata if any (treat PR title/description as another claim to check against the diff, not as verified fact; see rule 10 for how to weigh it against this commit's own narrower state), a story_attribution object already computed upstream (you must not override or re-derive story_id yourself), a sweeping_claim_check object (see rule 9), an unexplained_deletions list (see rule 11), and an overclaim_check object (see rule 14).
+You will be given: the commit message, the full diff, the list of files changed, PR metadata if any (treat PR title/description as another claim to check against the diff, not as verified fact; see rule 10 for how to weigh it against this commit's own narrower state), a story_attribution object already computed upstream (you must not override or re-derive story_id yourself), a sweeping_claim_check object (see rule 9), an unexplained_deletions list (see rule 11), an overclaim_check object (see rule 14), and a ui_copy_removal_check object (see rule 15).
 
 Respond with ONLY a JSON object, no markdown fences, no extra text, in exactly this shape:
 {"status": "<one of the four values>", "narrative": "<one paragraph>"}
@@ -56,6 +57,7 @@ def build_user_prompt(record):
         ),
         "unexplained_deletions": record.get("unexplained_deletions", []),
         "overclaim_check": _overclaim_for_prompt(record),
+        "ui_copy_removal_check": _ui_copy_removal_for_prompt(record),
     }
     return json.dumps(payload)
 
@@ -77,6 +79,22 @@ def _overclaim_for_prompt(record):
                 "plain_fact": o.get("plain_fact"),
             }
             for o in oc.get("overclaims", [])
+        ],
+    }
+
+
+def _ui_copy_removal_for_prompt(record):
+    """Slim ui_copy_removal_check to what the model needs: whether an
+    undisclosed on-screen-text removal was found and, if so, the file and
+    the exact text. The full record keeps the rest."""
+    uc = record.get("ui_copy_removal_check") or {}
+    if not uc.get("detected"):
+        return {"detected": False}
+    return {
+        "detected": True,
+        "removals": [
+            {"file": r.get("file"), "text": r.get("text"), "plain_fact": r.get("plain_fact")}
+            for r in uc.get("removals", [])
         ],
     }
 
@@ -126,6 +144,12 @@ def enforce_deterministic_rules(status, narrative, record):
     # model is told to state it; this override just guarantees the status.
     overclaim_check = record.get("overclaim_check") or {}
     if overclaim_check.get("detected") and status != "Flagged":
+        status = "Flagged"
+
+    # Rule 15 safety net: an undisclosed removal of user-visible on-screen
+    # text (message never says anything was removed) is always Flagged.
+    ui_copy_removal_check = record.get("ui_copy_removal_check") or {}
+    if ui_copy_removal_check.get("detected") and status != "Flagged":
         status = "Flagged"
 
     # Rule 4, enforced in code rather than trusted to the model.

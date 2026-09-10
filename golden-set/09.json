@@ -1,6 +1,6 @@
 {
   "commit_id": "ce67468",
-  "plain_english_summary": "Added a small info icon next to the the access-request button. Tapping it opens a short explanation of how the SMS-based verification process works.",
-  "verified_status": "Code complete",
-  "correct_agent_response": "Code complete. Confirmed the icon toggles a tooltip card via local component state, and the the access-request button was resized to share a row with the new icon without changing its own behavior."
+  "plain_english_summary": "Added a small info icon next to the access-request button. Tapping it opens a short explanation of how the SMS-based verification process works.",
+  "verified_status": "Flagged",
+  "correct_agent_response": "The addition itself checks out: confirmed via diff the info icon toggles a tooltip card via local component state, and the access-request button was resized to share a row with the new icon without changing its own behavior. Flagged for a separate reason: the same diff also removes the always-visible inline hint line that showed once a patient was found (\"An SMS will be sent to the patient's registered number for verification.\"), and the commit message frames the work only as adding an icon and tooltip, never mentioning that any on-screen text was removed. Same tone as any other flagged entry, not an elevated concern: the removal may well be intentional since the new tooltip covers similar ground, but a developer should get a quick confirmation that dropping the persistent hint was deliberate. This is user-facing copy, not internal code."
 }

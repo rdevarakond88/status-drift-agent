@@ -120,6 +120,37 @@ CASE_06_NARRATIVE_AS_GENERATED = (
 )
 
 
+# The exact case 15 narrative from the v9 self-consistency run
+# (eval_output/results-selfconsistency.jsonl, golden_file 15.json), the
+# case that surfaced the hedge carve-out. The model correctly reasoned to
+# "Flagged" - the commit's own "no longer appears" claim doesn't hold, a
+# leftover reference sits in src/api/pinnedFetch.ts - but its closing
+# sentence hedges about whether that leftover is "expected leftover
+# comments or something that still needs cleanup". "still needs" matched
+# and flipped a correct "Flagged" down to "Pending". The hedge carve-out
+# (a trigger phrase right after "or") must now suppress it.
+CASE_15_NARRATIVE_AS_GENERATED = (
+    "This commit is a PM-authored merge record documenting that pull request #7 was "
+    "merged from the dev branch into main to bring over a fix removing a dead "
+    "onrender.com URL, along with backend migration and governance work that dev had "
+    "but main was missing; it only touches an internal violation log and the project "
+    "status doc, not application code, so no story ticket was attached, but the "
+    "commit's own message and diff make its purpose and scope clear enough that no "
+    "story reference was needed here. The commit describes several verification steps "
+    "before merging, such as a dry-run merge in an isolated copy of the repo and a "
+    "typecheck comparison showing no new errors, and it states that a post-merge check "
+    "confirmed the onrender.com reference no longer appears in main's src/api folder. "
+    "However, an actual search of the repository at that commit shows the onrender.com "
+    "text is still present in src/api/pinnedFetch.ts, inside two comments referencing "
+    "the old Render domain, which is exactly the folder the claim was scoped to, so "
+    "that specific claim does not hold up against what's actually in the code. Because "
+    "of this mismatch between what the commit says was confirmed and what the "
+    "repository actually shows, this should be flagged for a developer to double check "
+    "whether those remaining references in pinnedFetch.ts are expected leftover "
+    "comments or something that still needs cleanup."
+)
+
+
 # (name, incoming_status, narrative)
 NEVER_TRIGGER = [
     (
@@ -207,6 +238,24 @@ NEVER_TRIGGER = [
         "Pending",
         "The front-end header change still needs to happen before this is usable.",
     ),
+    (
+        # Real case that broke: "still needs" inside the second branch of
+        # an "X or Y" hedge, in a narrative whose real, correctly-reasoned
+        # status is "Flagged". Must stay "Flagged" - see the hedge carve-out.
+        "case_15_exact_as_generated",
+        "Flagged",
+        CASE_15_NARRATIVE_AS_GENERATED,
+    ),
+    (
+        # Constructed, generic version of the same pattern: a hedge about
+        # whether a minor leftover matters, not a report of separate
+        # unfinished work.
+        "hedged_alternative_generic",
+        "Flagged",
+        "The two flagged lines look like they are either an intentional fallback or "
+        "something that still needs cleanup, but that is a judgment call for a "
+        "developer, not something the diff alone settles.",
+    ),
 ]
 
 
@@ -269,6 +318,17 @@ MUST_TRIGGER = [
         "One claim does not hold up against the diff, and separately the app-side "
         "change is being handed off to another agent.",
         "handed off",
+    ),
+    (
+        # The hedge carve-out is a SHORT lookback (3 words): an "or" this
+        # far back (well past the window) does not reach across a whole
+        # separate sentence to swallow a genuine, unrelated trigger later
+        # on. Must still flip to "Pending".
+        "hedge_word_too_far_back_still_triggers",
+        "Code complete",
+        "Either the demo data is a placeholder or the team decided to ship it as-is; "
+        "either way, the corresponding backend migration is still outstanding.",
+        "outstanding",
     ),
 ]
 

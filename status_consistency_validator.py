@@ -35,6 +35,19 @@ each trigger phrase (bare "not yet" was dropped, then "outstanding" and
 "still needs" collided the same way); the rule is phrase-agnostic and
 covers future trigger phrases too.
 
+A trigger phrase sitting inside the second branch of an "X or Y"
+alternative, immediately after "or", is the third carve-out (golden entry
+15: "...are expected leftover comments or something that still needs
+cleanup" - the AI hedging about whether a couple of pinning-comment
+mentions matter, not reporting a second, separate unfinished task; the
+narrative's real, Flagged-worthy issue is stated earlier in the same
+paragraph and must not be swallowed by this incidental hedge). This is
+deliberately a short, close-range lookback: it must not suppress a
+genuinely separate second issue like "...and separately the app-side
+change is being handed off to another agent", which still needs to flip a
+"Flagged" commit's status to "Pending" per rule 13's spirit (see
+test case trigger_overrides_flagged_too).
+
 The trigger list deliberately excludes bare "not yet": under rule 2 the
 model is expected to describe an untested mockup as "code-complete but not
 yet tested", and that phrasing must NOT be flipped to "Pending". Only the
@@ -100,6 +113,21 @@ NEGATION_LOOKBACK_WORDS = 8
 # "still needs to happen" sentence.
 VERIFICATION_CONTEXT_WINDOW_WORDS = 5
 
+# A third carve-out, same shape as the negation guard: a trigger phrase
+# sitting inside the SECOND branch of an "X or Y" alternative is the AI
+# presenting a hedge, not asserting Y is true. "...are expected leftover
+# comments or something that still needs cleanup" is the AI wondering
+# whether a couple of pinning-comment mentions matter, not reporting a
+# second, separate piece of unfinished work - unlike, say, "...and
+# separately the app-side change is being handed off to another agent",
+# which names a real second task and must still trigger. A short lookback
+# (3 catches "or something that still needs", the closest real case seen;
+# wider risks swallowing a genuine "...done, but X, or is that actually
+# still outstanding" report) keeps this narrow to the "or" sitting right
+# next to the hedge, not anywhere earlier in the sentence.
+HEDGE_WORDS = {"or"}
+HEDGE_LOOKBACK_WORDS = 3
+
 WORD_PATTERN = re.compile(r"[a-z']+")
 
 
@@ -115,6 +143,12 @@ def _is_verification_context(scan_text, match_start, match_end):
     return any(w in VERIFICATION_WORDS for w in before + after)
 
 
+def _is_hedged_alternative(scan_text, match_start):
+    preceding_words = WORD_PATTERN.findall(scan_text[:match_start])
+    window = preceding_words[-HEDGE_LOOKBACK_WORDS:]
+    return any(w in HEDGE_WORDS for w in window)
+
+
 def validate_status(status, narrative):
     """Returns (possibly-corrected status, phrases that triggered the correction)."""
     scan_text = narrative.replace(FOLLOW_UP_QUESTION.strip(), "").lower()
@@ -126,8 +160,10 @@ def validate_status(status, narrative):
             if idx == -1:
                 break
             end = idx + len(phrase)
-            if not _is_negated(scan_text, idx) and not _is_verification_context(
-                scan_text, idx, end
+            if (
+                not _is_negated(scan_text, idx)
+                and not _is_verification_context(scan_text, idx, end)
+                and not _is_hedged_alternative(scan_text, idx)
             ):
                 matched.append(phrase)
                 break

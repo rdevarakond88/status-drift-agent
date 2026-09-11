@@ -65,15 +65,144 @@ def detect_sweeping_claims(commit_message):
     return matched_keywords, claimed_texts
 
 
-def verify_claim_against_repo(repo, sha, claimed_text):
+_HUNK_HEADER_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)")
+
+# Files whose added lines can themselves STATE a sweeping claim - a
+# tracking-log entry, a "Last Updated" status note, a decision record.
+# Machine logs (.jsonl/.json), code, and config are excluded: their added
+# lines are data, not an author's status claim, and scanning them produces
+# only noise (golden entry 15's commit also appends 20 lines of captured
+# shell output to a .jsonl log).
+_CLAIM_SOURCE_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt", ".adoc"}
+
+# On the added-diff-line path we trust ONLY absence-claim phrasing ("X is
+# gone"), not the scope intensifiers in SWEEPING_CLAIM_KEYWORDS. "corrected
+# it entirely" or "deferring entirely to `x`" in a commit's own added prose
+# is not a claim that `x` is absent - golden entry 13's added lines say
+# exactly that and must not be read as a sweeping claim.
+_ABSENCE_CLAIM_RE = re.compile(
+    r"\bno longer (?:appears?|exists?|present|remains?|shows? up)\b"
+    r"|\bnowhere (?:in\b|to be found)"
+    r"|\b(?:gone|removed|stripped|purged|absent|missing) from\b",
+    re.I,
+)
+# Backtick as well as quote delimiters: added prose writes the claimed
+# token as `code` far more often than 'quoted'.
+_ADDED_CLAIM_TOKEN_RE = re.compile(r"[`'\"]([^`'\"]{3,120})[`'\"]")
+
+
+def _commit_diff_added(repo, sha):
+    """Parse the commit's own unified diff once (first-parent for merges).
+    Returns (line_numbers, prose_lines):
+
+      line_numbers: {path: {new-side line numbers this commit adds}} - used
+        to discount sweeping-claim grep hits that land on a line the commit
+        itself just wrote (golden entry 13: the commit fixes a stale
+        'Six Agents' heading and, in the same diff, adds a changelog line
+        naming 'Six Agents' as what it changed - not a leftover).
+
+      prose_lines: [text] of every added line in a human-prose file
+        (_CLAIM_SOURCE_EXTENSIONS) - scanned for a sweeping absence-claim
+        the commit introduces in its own tracking / status content, which
+        never reaches the commit-message field (golden entry 15: a merge
+        whose added 'Last Updated' note says the dead Render URL
+        'no longer appears in main's src/api/', while it still sits in a
+        third file the merge never touched)."""
+    parents = subprocess.run(
+        ["git", "-C", str(repo), "log", "-1", "--format=%P", sha],
+        capture_output=True, text=True,
+    ).stdout.split()
+    args = ["show", "--format=", "-p"]
+    if len(parents) > 1:
+        args.append("--first-parent")
+    args.append(sha)
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True,
+    )
+    line_numbers = {}
+    prose_lines = []
+    path = None
+    new_lineno = 0
+    for line in result.stdout.splitlines():
+        if line.startswith("+++ "):
+            p = line[4:].strip()
+            if p == "/dev/null":
+                path = None
+            elif p.startswith(("a/", "b/")):
+                path = p[2:]
+            else:
+                path = p
+        elif line.startswith("--- "):
+            continue
+        elif line.startswith("@@"):
+            m = _HUNK_HEADER_RE.match(line)
+            new_lineno = int(m.group(1)) if m else 0
+        elif line.startswith("+"):
+            if path is not None:
+                line_numbers.setdefault(path, set()).add(new_lineno)
+                if Path(path).suffix.lower() in _CLAIM_SOURCE_EXTENSIONS:
+                    prose_lines.append(line[1:])
+            new_lineno += 1
+        elif line.startswith("-"):
+            continue  # old-side only, new-side line number unchanged
+        elif line.startswith(" "):
+            new_lineno += 1
+        # any other line ("\ No newline at end of file", etc): ignore
+    return line_numbers, prose_lines
+
+
+def _added_line_numbers_by_path(repo, sha):
+    """Back-compat shim: just the {path: {lineno}} half of _commit_diff_added."""
+    return _commit_diff_added(repo, sha)[0]
+
+
+def claims_from_added_prose(prose_lines):
+    """Distinctive quoted/backticked tokens that an added prose line claims
+    are ABSENT - e.g. '`onrender.com` no longer appears in `main`'s
+    `src/api/`'. Returns (claimed_texts, matched_phrases).
+
+    Deliberately narrow, because this text was not written as a status
+    claim to a reviewer the way a commit message is:
+      - only absence-claim phrasing counts (see _ABSENCE_CLAIM_RE); a scope
+        intensifier ('deferring entirely to `x`') is not a claim that `x`
+        is gone
+      - the token must sit just before the phrase (its subject)
+      - the token must look like a domain or dotted filename (contains
+        '.', no spaces); a bare word ('main') greps to noise"""
+    claimed, phrases = [], []
+    for raw in prose_lines:
+        for m in _ABSENCE_CLAIM_RE.finditer(raw):
+            window = raw[max(0, m.start() - 80):m.start()]
+            tokens = _ADDED_CLAIM_TOKEN_RE.findall(window)
+            if not tokens:
+                continue
+            tok = tokens[-1].strip()
+            if "." in tok and " " not in tok:
+                phrases.append(m.group(0).lower())
+                if tok not in claimed:
+                    claimed.append(tok)
+    return claimed, phrases
+
+
+def verify_claim_against_repo(repo, sha, claimed_text, added_lines=None):
     """Greps the repo tree as of sha (not just this commit's diff) for the
     literal claimed text, so a claim about the whole codebase gets checked
-    against the whole codebase, not just what the diff happens to show."""
+    against the whole codebase, not just what the diff happens to show.
+
+    `added_lines` ({path: {lineno}}, from _commit_diff_added) drops hits
+    that fall on a line this commit itself just added - those are the commit
+    describing its own fix, not stale text it failed to clean up."""
     result = subprocess.run(
         ["git", "-C", str(repo), "grep", "-n", "-F", claimed_text, sha],
         capture_output=True, text=True,
     )
-    still_found_at = [line for line in result.stdout.splitlines() if line]
+    still_found_at = []
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        if added_lines and _grep_hit_is_own_added_line(line, sha, added_lines):
+            continue
+        still_found_at.append(line)
     return {
         "claimed_text": claimed_text,
         "still_found_at": still_found_at,
@@ -83,14 +212,37 @@ def verify_claim_against_repo(repo, sha, claimed_text):
 
 def build_sweeping_claim_check(repo, sha, commit_message):
     matched_keywords, claimed_texts = detect_sweeping_claims(commit_message)
-    if not matched_keywords:
+    line_numbers, prose_lines = _commit_diff_added(repo, sha)
+    added_claimed, added_phrases = claims_from_added_prose(prose_lines)
+
+    if not matched_keywords and not added_claimed:
         return {"detected": False, "keywords_matched": [], "verifications": []}
-    verifications = [verify_claim_against_repo(repo, sha, text) for text in claimed_texts]
+
+    all_claimed = list(dict.fromkeys(list(claimed_texts) + added_claimed))
+    verifications = [
+        verify_claim_against_repo(repo, sha, text, line_numbers) for text in all_claimed
+    ]
     return {
         "detected": True,
-        "keywords_matched": matched_keywords,
+        "keywords_matched": list(dict.fromkeys(matched_keywords + added_phrases)),
         "verifications": verifications,
     }
+
+
+def _grep_hit_is_own_added_line(hit, tree_ref, added_lines):
+    """A `git grep -n <ref>` line is `<ref>:<path>:<lineno>:<text>`. True if
+    that (path, lineno) is one this commit added."""
+    prefix = tree_ref + ":"
+    rest = hit[len(prefix):] if hit.startswith(prefix) else hit
+    parts = rest.split(":", 2)
+    if len(parts) < 3:
+        return False
+    path, lineno_str = parts[0], parts[1]
+    try:
+        lineno = int(lineno_str)
+    except ValueError:
+        return False
+    return lineno in added_lines.get(path, set())
 
 
 # ── Overclaim check ─────────────────────────────────────────────────────

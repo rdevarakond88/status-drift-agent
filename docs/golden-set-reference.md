@@ -16,7 +16,7 @@
 | 6 | Softened "patient not found" error card styling | Code complete |
 | 7 | Added last-visit date to patient card | Code complete |
 | 8 | Made Request Access button always visible, greyed out until match | Code complete |
-| 9 | Added info icon explaining SMS consent process | Code complete |
+| 9 | Added info icon explaining SMS consent process (diff also silently drops an on-screen SMS hint line the message never mentions removing) | Flagged |
 | 10 | Updated placeholder sample names | Code complete |
 
 ## Verified against real code (11–19) — required checking the actual diff, not just the message

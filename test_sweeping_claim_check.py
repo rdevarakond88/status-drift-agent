@@ -21,6 +21,10 @@ What the check must do:
     -> claim_holds True: the commit explaining its own fix is not a
     leftover problem (golden entry 13)
   - a hit on a pre-existing (context / unchanged) line still counts
+  - a verified claim_holds: False forces status to Flagged in code (rule 9
+    safety net), the same pattern as rules 11/14/15 - but detected: True
+    alone must NOT fire it (golden entry 13 is detected with every
+    verification holding, and must stay whatever the model said)
 """
 
 import json
@@ -35,6 +39,7 @@ from fetch_layer import (
     claims_from_added_prose,
     detect_sweeping_claims,
 )
+from prompt_contract_layer import build_user_prompt, enforce_deterministic_rules
 
 
 # -- hermetic git repo helpers ----------------------------------------------
@@ -399,6 +404,121 @@ def _check_sweeping(tmp):
     return failures
 
 
+# -- prompt-contract wiring: the code-level rule-9 Flagged override ------
+#
+# Same pattern, and same verification method, as rules 11/14/15's original
+# hard overrides: feed enforce_deterministic_rules a DELIBERATELY WRONG
+# model status and confirm it still forces Flagged. A status the model
+# already agrees with proves nothing about the override actually working.
+
+def _record(sweeping_claim_check=None, **extra):
+    r = {
+        "commit_id": "test",
+        "commit_message": "x",
+        "files_changed": ["docs/a.md"],
+        "full_diff": "",
+        "pr_metadata": [],
+        "story_attribution": {"status": "unattributed", "story_id": None, "matched_in": None},
+        "touches_app_code": True,
+        "unexplained_deletions": [],
+    }
+    if sweeping_claim_check is not None:
+        r["sweeping_claim_check"] = sweeping_claim_check
+    r.update(extra)
+    return r
+
+
+# entry-15 shape: detected, and the claim does NOT hold.
+_FALSE_CLAIM_SC = {
+    "detected": True,
+    "keywords_matched": ["no longer appears"],
+    "verifications": [{
+        "claimed_text": "onrender.com",
+        "still_found_at": ["6aa36a6:src/api/pinnedFetch.ts:6:...medrecord-api.onrender.com..."],
+        "claim_holds": False,
+    }],
+}
+# entry-13 shape: detected, but the claim DOES hold. detected: True alone
+# must never be enough to fire the override - this is the case that tells
+# the two apart.
+_HOLDING_CLAIM_SC = {
+    "detected": True,
+    "keywords_matched": ["entirely"],
+    "verifications": [{
+        "claimed_text": "Six Agents",
+        "still_found_at": [],
+        "claim_holds": True,
+    }],
+}
+# a keyword matched in the message but nothing was quoted to check -
+# verifications is empty. Also must not fire.
+_NO_VERIFICATIONS_SC = {
+    "detected": True,
+    "keywords_matched": ["completely"],
+    "verifications": [],
+}
+
+
+def _check_contract_override():
+    failures = []
+
+    # detected + claim_holds False -> status forced to Flagged, whatever
+    # the model said, including a status the model got flatly wrong.
+    for model_status in ("Code complete", "Tested", "Pending"):
+        status, _ = enforce_deterministic_rules(model_status, "The commit does X.", _record(_FALSE_CLAIM_SC))
+        if status != "Flagged":
+            failures.append(f"[override] false claim + model {model_status!r} -> {status!r}, expected 'Flagged'")
+    if not failures:
+        print("  ok   override      claim_holds False forces Flagged over Code complete / Tested / Pending")
+
+    # already Flagged -> stays Flagged, no error.
+    status, _ = enforce_deterministic_rules("Flagged", "Already flagged.", _record(_FALSE_CLAIM_SC))
+    if status != "Flagged":
+        failures.append(f"[override] false claim + model already 'Flagged' -> {status!r}")
+    else:
+        print("  ok   override      false claim + model already Flagged -> Flagged")
+
+    # THE KEY GUARD: detected True but claim_holds True (entry-13 shape) ->
+    # no effect, whatever the model said. detected alone is not the signal.
+    before = len(failures)
+    for model_status in ("Code complete", "Pending", "Flagged"):
+        status, _ = enforce_deterministic_rules(model_status, "The commit does X.", _record(_HOLDING_CLAIM_SC))
+        if status != model_status:
+            failures.append(
+                f"[override] detected=True but claim_holds=True wrongly overrode "
+                f"{model_status!r} -> {status!r} (entry-13 regression)"
+            )
+    if len(failures) == before:
+        print("  ok   override      detected=True + claim_holds=True (entry 13) -> never overridden")
+
+    # detected but nothing quoted to verify -> no effect.
+    status, _ = enforce_deterministic_rules("Code complete", "The commit does X.", _record(_NO_VERIFICATIONS_SC))
+    if status != "Code complete":
+        failures.append(f"[override] empty verifications wrongly overrode status to {status!r}")
+    else:
+        print("  ok   override      detected but no verifications -> status unaffected")
+
+    # sweeping_claim_check absent entirely -> no effect (behaves exactly as
+    # every other record without this field ever has).
+    status, _ = enforce_deterministic_rules("Code complete", "The commit does X.", _record())
+    if status != "Code complete":
+        failures.append(f"[override] absent sweeping_claim_check changed status to {status!r}")
+    else:
+        print("  ok   override      absent sweeping_claim_check -> status unaffected")
+
+    # the verification data actually reaches the model payload (unslimmed,
+    # unlike overclaim_check/ui_copy_removal_check - build_user_prompt
+    # passes sweeping_claim_check through as-is).
+    payload = json.loads(build_user_prompt(_record(_FALSE_CLAIM_SC)))
+    sc = payload.get("sweeping_claim_check", {})
+    if not (sc.get("detected") and sc["verifications"][0]["claim_holds"] is False):
+        failures.append(f"[override] claim_holds/verifications not in prompt payload: {sc}")
+    else:
+        print("  ok   override      claim_holds/verifications passed into the prompt payload")
+
+    return failures
+
+
 # -- real golden entry 13, gated on EVAL_TARGET_REPO ---------------------
 
 REAL_SHA = "2dab6c7"
@@ -500,6 +620,7 @@ def _run():
             _check_detect()
             + _check_added_prose()
             + _check_sweeping(tmp)
+            + _check_contract_override()
             + _check_real_entry_13()
             + _check_real_entry_15()
         )

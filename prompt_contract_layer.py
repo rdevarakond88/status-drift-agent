@@ -109,12 +109,99 @@ def call_claude(system_prompt, user_prompt, timeout=180):
     return result.stdout.strip()
 
 
+# ── JSON-parsing robustness ─────────────────────────────────────────────
+#
+# The model's raw {status, narrative} output occasionally fails strict
+# json.loads. This is NOT a general JSON fixer - it repairs exactly four
+# malformations found by direct inspection of 7 real historical claude -p
+# outputs (session logs, 2026-08-25 through 2026-09-13, out of 489 total
+# calls): the model believes it produced valid output every time
+# (stop_reason: end_turn on all 7), it's a formatting slip, not a cutoff.
+#
+#   1. a Unicode curly/smart quote ("Tested", ' vs "Tested", ') used as a
+#      string delimiter instead of a straight ASCII quote (1 case)
+#   2. a trailing comma right before the closing brace: ..."}, }" (2 cases)
+#   3. an unescaped literal " inside the narrative text - quoting a short
+#      phrase inline ("...its \"verified end-to-end\" claim...") without
+#      escaping it - which prematurely closes the JSON string (3 cases)
+#   4. extra content after a complete, valid JSON object: the model kept
+#      talking (or added a stray extra key) after the real "}" (1 case)
+#
+# Anything outside these four patterns is left alone; parse_model_output
+# re-raises the original json.loads error rather than guessing further.
+
+_CURLY_QUOTE_TABLE = str.maketrans({
+    "“": '"', "”": '"',  # “ ”
+    "‘": "'", "’": "'",  # ‘ ’
+})
+
+# The four allowed status words, used both to validate and - for the
+# repair path - to locate the status value without needing the rest of
+# the object to be well-formed.
+_STATUS_VALUE_RE = re.compile(
+    r'"status"\s*:\s*"(' + "|".join(re.escape(s) for s in
+        ("Code complete", "Tested", "Pending", "Flagged")) + r')"'
+)
+_NARRATIVE_START_RE = re.compile(r'"narrative"\s*:\s*"')
+# The real closing delimiter: a '"', then either the closing '}' straight
+# away, or a stray trailing comma (malformation #2) before it, or - seen in
+# one real case combining #3 with an extra stray key - one or more extra
+# simple "key": value pairs before it. Anchored to the END of the text.
+# Anchoring to the end - not the first quote found after "narrative": " -
+# is what lets this skip past an unescaped internal quote used earlier as
+# inline content (malformation #3): that quote is never immediately
+# followed by this whole tail pattern through end-of-string, only the real
+# closing one is.
+_TRAILING_SIMPLE_PAIR = r',\s*"[^"\\]*"\s*:\s*(?:"[^"\\]*"|null|true|false|-?\d+(?:\.\d+)?)'
+_NARRATIVE_END_RE = re.compile(r'"(?:' + _TRAILING_SIMPLE_PAIR + r')*\s*,?\s*\}\s*\Z')
+
+
+def _repair_model_json(text):
+    """Best-effort repair for the four evidenced malformations above.
+    Returns a clean JSON string on success, or None if the text doesn't
+    match any of them - never raises, never fabricates a result."""
+    t = text.translate(_CURLY_QUOTE_TABLE)  # malformation #1
+
+    # Cheap path first: maybe normalizing quotes was enough, or the object
+    # itself is already well-formed and the problem is purely extra
+    # trailing content after it (malformation #4) - raw_decode parses one
+    # complete value from the start and ignores anything left over.
+    try:
+        obj, _end = json.JSONDecoder().raw_decode(t)
+        if isinstance(obj, dict) and "status" in obj and "narrative" in obj:
+            return json.dumps(obj)
+    except json.JSONDecodeError:
+        pass
+
+    # Malformations #2 / #3: re-extract status and narrative directly by
+    # locating their boundaries in the text, rather than trying to patch
+    # the string in place - the stray delimiter itself makes position-based
+    # patching unreliable. Re-serializing the extracted narrative with
+    # json.dumps() correctly (re-)escapes anything inside it; nothing here
+    # depends on the original internal escaping being correct.
+    m_status = _STATUS_VALUE_RE.search(t)
+    m_start = _NARRATIVE_START_RE.search(t)
+    if not (m_status and m_start):
+        return None
+    m_end = _NARRATIVE_END_RE.search(t)
+    if not m_end or m_end.start() < m_start.end():
+        return None
+    narrative = t[m_start.end():m_end.start()]
+    return json.dumps({"status": m_status.group(1), "narrative": narrative})
+
+
 def parse_model_output(raw_text):
     text = raw_text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(json)?\n?", "", text)
         text = re.sub(r"\n?```$", "", text)
-    parsed = json.loads(text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        repaired = _repair_model_json(text)
+        if repaired is None:
+            raise e
+        parsed = json.loads(repaired)
     if "status" not in parsed or "narrative" not in parsed:
         raise ValueError(f"model output missing required keys: {parsed}")
     if parsed["status"] not in ALLOWED_STATUSES:

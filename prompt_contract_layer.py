@@ -8,9 +8,14 @@ reasoning) to the model.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
+import uuid
+from datetime import datetime, timezone
+
+import langfuse_client
 
 ALLOWED_STATUSES = {"Code complete", "Tested", "Pending", "Flagged"}
 
@@ -100,13 +105,35 @@ def _ui_copy_removal_for_prompt(record):
 
 
 def call_claude(system_prompt, user_prompt, timeout=180):
+    start_iso = datetime.now(timezone.utc).isoformat()
     result = subprocess.run(
-        ["claude", "-p", "--system-prompt", system_prompt],
+        ["claude", "-p", "--system-prompt", system_prompt, "--output-format", "json"],
         input=user_prompt, capture_output=True, text=True, timeout=timeout,
     )
+    end_iso = datetime.now(timezone.utc).isoformat()
+
     if result.returncode != 0:
-        raise RuntimeError(f"claude -p failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+        error = result.stderr.strip()
+        _trace_live_call(system_prompt, user_prompt, start_iso, end_iso, None, None, error)
+        raise RuntimeError(f"claude -p failed: {error}")
+
+    # --output-format json wraps the model's raw {status, narrative} text in
+    # an envelope carrying usage/model/session_id - unwrap it, but return
+    # exactly the same raw text call_claude always returned so callers
+    # (parse_model_output) are unaffected. Requested only so live tracing can
+    # capture the same usage/model/request-id richness the historical import
+    # pulled from Claude Code's own session logs.
+    try:
+        envelope = json.loads(result.stdout.strip())
+    except json.JSONDecodeError as e:
+        _trace_live_call(system_prompt, user_prompt, start_iso, end_iso, None, None,
+                          f"claude -p --output-format json returned non-JSON stdout: {e}")
+        raise RuntimeError(
+            f"claude -p --output-format json returned non-JSON stdout: {result.stdout[:200]!r}"
+        ) from e
+    output_text = envelope.get("result", "").strip()
+    _trace_live_call(system_prompt, user_prompt, start_iso, end_iso, envelope, output_text, None)
+    return output_text
 
 
 # ── JSON-parsing robustness ─────────────────────────────────────────────
@@ -207,6 +234,137 @@ def parse_model_output(raw_text):
     if parsed["status"] not in ALLOWED_STATUSES:
         raise ValueError(f"model returned an out-of-contract status: {parsed['status']!r}")
     return parsed
+
+
+# ── live Langfuse tracing ────────────────────────────────────────────────
+#
+# Best-effort only: a Langfuse push never raises and never blocks the
+# pipeline - if the local Langfuse stack isn't running, or credentials
+# aren't configured (langfuse_client.load_credentials() returns None),
+# tracing is silently skipped. See docs/session-state.md for the historical
+# backfill this mirrors (import_historical_traces.py).
+
+_SESSION_LOG_DIR = os.path.expanduser(
+    "~/.claude/projects/-home-rdeva-status-translation-agent"
+)
+
+
+def _classify_raw_output(text):
+    if not text:
+        return "no-response"
+    try:
+        json.loads(text)
+        return "clean"
+    except json.JSONDecodeError:
+        pass
+    try:
+        parse_model_output(text)
+        return "json-repaired"
+    except Exception:
+        return "json-parse-failure"
+
+
+def _read_thinking_and_request_id(session_id):
+    """claude -p's --output-format json envelope carries usage/model but not
+    the thinking block or requestId - those only live in the session log
+    Claude Code itself writes for the call, named exactly <session_id>.jsonl
+    in this project's own log directory. Best-effort: returns (None, None)
+    if the file isn't there or doesn't parse."""
+    path = os.path.join(_SESSION_LOG_DIR, f"{session_id}.jsonl")
+    if not os.path.exists(path):
+        return None, None
+    assistant_records = []
+    try:
+        with open(path) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if d.get("type") == "assistant":
+                    assistant_records.append(d)
+    except OSError:
+        return None, None
+    if not assistant_records:
+        return None, None
+    last_request_id = assistant_records[-1].get("requestId")
+    group = [a for a in assistant_records if a.get("requestId") == last_request_id]
+    thinking = "\n".join(
+        b.get("thinking", "")
+        for a in group
+        for b in a.get("message", {}).get("content", [])
+        if b.get("type") == "thinking"
+    )
+    return thinking, last_request_id
+
+
+def _trace_live_call(system_prompt, user_prompt, start_iso, end_iso, envelope, output_text, error):
+    creds = langfuse_client.load_credentials()
+    if creds is None:
+        return
+
+    try:
+        trace_input = json.loads(user_prompt)
+    except (json.JSONDecodeError, TypeError):
+        trace_input = user_prompt
+
+    parse_class = "error" if error else _classify_raw_output(output_text)
+    session_id = envelope.get("session_id") if envelope else None
+    thinking_text, request_id = _read_thinking_and_request_id(session_id) if session_id else (None, None)
+
+    metadata = {
+        "session_id": session_id,
+        "request_id": request_id,
+        "stop_reason": envelope.get("stop_reason") if envelope else None,
+        "total_cost_usd": envelope.get("total_cost_usd") if envelope else None,
+        "parse_class": parse_class,
+        "error": error,
+    }
+
+    trace_id = str(uuid.uuid4())
+    events = [{
+        "id": str(uuid.uuid4()),
+        "type": "trace-create",
+        "timestamp": start_iso,
+        "body": {
+            "id": trace_id,
+            "timestamp": start_iso,
+            "name": "generate_status_update",
+            "input": trace_input,
+            "output": output_text,
+            "metadata": metadata,
+            "tags": ["live", f"parse:{parse_class}"],
+        },
+    }]
+
+    usage = envelope.get("usage") if envelope else None
+    events.append({
+        "id": str(uuid.uuid4()),
+        "type": "generation-create",
+        "timestamp": start_iso,
+        "body": {
+            "id": f"{trace_id}-gen",
+            "traceId": trace_id,
+            "name": "call_claude",
+            "startTime": start_iso,
+            "endTime": end_iso,
+            "model": "claude-sonnet-5",
+            "input": {"system_prompt": system_prompt, "user_prompt": trace_input},
+            "output": output_text,
+            "usageDetails": langfuse_client.usage_details(usage),
+            "metadata": {**metadata, "thinking": thinking_text},
+            "level": "ERROR" if error else "DEFAULT",
+            "statusMessage": error or parse_class,
+        },
+    })
+
+    try:
+        langfuse_client.push_batch(events, creds, timeout=5)
+    except Exception as e:
+        print(f"[langfuse] live trace push failed (non-fatal): {e}", file=sys.stderr)
 
 
 def enforce_deterministic_rules(status, narrative, record):

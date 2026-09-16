@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 checkpoints.json
 output/
+langfuse/
+.venv-langfuse/

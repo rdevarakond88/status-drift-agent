@@ -8,86 +8,91 @@ this one is the living pointer.
 
 ## Resuming from
 
-### Immediate next step — Langfuse setup, blocked mid-task
+### Session 7 (2026-09-16) — Langfuse tracing, all 4 parts done
 
-**This is the actual resume point.** The user asked (session 7,
-2026-09-16) to stand up **self-hosted Langfuse via Docker** for this
-project, then: (1) extract the 489 historical `claude -p` calls from
-Claude Code's own session logs and import them as historical Langfuse
-traces with their real timestamps, (2) capture per-trace: timestamp,
-latency, full input, full output incl. thinking block, model ID, token
-usage, request ID, and a tag for the 7 known JSON-parse-failure cases,
-(3) join each trace to a golden-set entry by matching `commit_message`/
-`commit_id` in the input payload against `golden-set/*.json`, noting
-confident-vs-uncertain matches, (4) wire up **live** tracing so future
-`claude -p` calls (via `prompt_contract_layer.call_claude`) auto-log.
-**Nothing has been built yet** — the task stalled at step zero.
+**Resume point:** nothing blocking. The Langfuse task from this session
+(stand up self-hosted Langfuse, backfill historical traces, join to
+golden-set, wire up live tracing) is fully complete, verified, committed
+on branch `langfuse-tracing`, merged `--no-ff` to `main`. See "Status of
+the work" below for the one-line-per-item summary and the "Open
+decisions" list for what's actually still open (unrelated leftovers from
+sessions 4–6, unchanged by this session).
 
-**Blocker, and why this session is restarting:** `docker ps` failed with
-a socket permission error — `rdeva` was not in the `docker` group (and
-`sudo` needs a password not available non-interactively; confirmed this
-is a real host permission, not a tool-sandbox artifact, by retrying with
-sandbox disabled — same failure). The user ran `sudo usermod -aG docker
-rdeva` and is restarting this Claude Code session/terminal specifically
-so the new group membership takes effect (adding a group doesn't apply
-to an already-running session).
+**What got built:**
+- **`langfuse/`** (gitignored) — cloned `langfuse/langfuse`, running via
+  `docker compose up -d`. `langfuse/.env` (gitignored) holds
+  auto-provisioned org/project/API keys (`LANGFUSE_INIT_*` env vars —
+  no browser signup needed). `docker-compose.override.yml`: (1) remaps
+  Postgres to host port 5433 (`127.0.0.1:5432` was already taken by a
+  native Postgres 16 service used by other projects — untouched), (2)
+  sets `LANGFUSE_MIGRATION_V4_WRITE_MODE=dual` on `langfuse-web` and
+  `langfuse-worker` — v4 defaults to OTLP-only ingestion and rejects the
+  classic `trace-create`/`generation-create` batch API needed for
+  backdated historical timestamps; the error message names this exact
+  fix. UI: `http://localhost:3000`, login in `langfuse/.env`.
+- **`langfuse_client.py`** — stdlib-only (`urllib`, no SDK/`requests`
+  dependency) credential loading + batch-push helper, shared by the
+  backfill script and live tracing. Chose the classic ingestion API over
+  the v4 Python SDK deliberately: the SDK is OTEL-based and ties
+  observation `start_time` to wall-clock "now," which can't backdate
+  historical traces; the classic API's `timestamp`/`startTime`/`endTime`
+  fields can.
+- **`import_historical_traces.py`** — parses all 489 `sdk-cli`-entrypoint
+  session log files in
+  `~/.claude/projects/-home-rdeva-status-translation-agent/*.jsonl`,
+  classifies each (`clean` / `json-repaired` / `json-parse-failure` /
+  `no-response` / `connectivity-ping`), joins to `golden-set/*.json` by
+  resolving each entry's `commit_id` via `git log -1 --format=%B` in
+  `EVAL_TARGET_REPO` and matching against the session log's
+  `commit_message` text (handles the one PR-level entry, `golden-set/14.json`,
+  whose `commit_id` is a label like `"PR-6 (merge cb66d392)"`, not a bare
+  SHA — extracts the SHA via regex before resolving), and pushes
+  trace-create/generation-create events. `--limit N` for a sample,
+  `--all` for the full run, `--dry-run` to preview without pushing.
+  Classification breakdown matches commit `bdcecd9`'s documented numbers
+  exactly: 480 clean / 7 json-repaired / 1 no-response / 1
+  connectivity-ping. Golden-set join: 413/489 confident, 0 uncertain, 76
+  unmatched (real `claude -p` calls that weren't against a golden-set
+  commit).
+- **Ran the pilot (20 records), then the full 489-trace backfill.**
+  Verified directly against ClickHouse (`uniqExact(id)` — not raw
+  `count()`, which briefly over-counts by the pilot's 20 duplicate rows
+  until ReplacingMergeTree background-merges them, harmless): **489
+  distinct traces, 488 distinct generations** (489 − 1 no-response).
+  Historical timestamps confirmed correct (e.g. `2026-09-09`, not
+  import-time "now").
+- **Live tracing wired into `prompt_contract_layer.call_claude`.**
+  `claude -p` now runs with `--output-format json`; `call_claude` unwraps
+  `envelope["result"]` and returns it exactly as before (same contract,
+  verified byte-identical), so no caller changed. The envelope carries
+  usage/model/session_id/cost but not the thinking block or `requestId`
+  — those are read back from the session log Claude Code itself writes
+  at `<session_id>.jsonl` immediately after the call (same directory as
+  the historical import reads). Tracing is best-effort only: silently
+  skipped when `langfuse_client.load_credentials()` finds no
+  credentials, never raises or blocks the pipeline on a push failure
+  (wrapped, 5s timeout, warns to stderr and moves on). Verified with a
+  real smoke-test call — trace landed with full metadata.
+- **Refactored `import_historical_traces.py` onto `langfuse_client.py`**,
+  dropping its `requests` dependency — both scripts now run under plain
+  system `python3`, no venv needed. (`.venv-langfuse/`, gitignored, was
+  built to develop against before this refactor; harmless to keep or
+  delete, no longer required.)
+- Committed on branch `langfuse-tracing` (`248be54`), merged `--no-ff` to
+  `main`, pushed.
 
-**First thing to do on resume:** re-check `docker ps` (and `docker
-compose version`). If it now works, proceed with the 4-part task above.
-If it's STILL denied, the restart didn't pick up the new group — tell
-the user directly rather than trying further workarounds (no `podman` is
-installed on this box either, confirmed).
-
-**Facts already gathered this session — reuse, don't re-derive:**
-- **489 total `sdk-cli`-entrypoint session log files** in
-  `~/.claude/projects/-home-rdeva-status-translation-agent/*.jsonl`
-  (distinct from this interactive session's own `entrypoint: "cli"`
-  transcripts in the same directory) — these ARE the individual
-  `claude -p` calls this pipeline has made, 2026-08-25T21:26:07.963Z
-  through 2026-09-13T21:04:32.060Z.
-- Breakdown: **480 parse cleanly**, **1 has no assistant response at
-  all** (likely a timeout/kill — `user` record present, nothing after),
-  **8 fail `json.loads`** — of which **1 is a stray `{"ping":"pong"}`
-  connectivity test**, not a real eval call (file
-  `1c357579-2268-49e8-a633-24fa17a47d12.jsonl`), leaving **7 genuine
-  JSON-parse failures** — these are the same 7 now fixed and pinned in
-  `test_parse_model_output.py` (see below); their exact filenames are in
-  that commit's message / this session's own transcript if needed again.
-- Per-record structure (verified by direct inspection, not docs): `type:
-  "user"` record carries `timestamp` (ISO-8601 ms), `message.content`
-  = the exact `build_user_prompt(record)` JSON string sent as input.
-  `type: "attachment"` with `attachment.type == "prompt_snapshot"`
-  carries the full `systemPrompt` text. `type: "assistant"` records
-  carry `timestamp`, `message.model` (e.g. `"claude-sonnet-5"`),
-  `message.usage` (input/output/cache-read/cache-creation/thinking
-  tokens, service_tier), `requestId`, `message.stop_reason`, `effort`,
-  and `message.content` = list of blocks (`type: "thinking"` and
-  `type: "text"` — the final text block is the raw `{status, narrative}`
-  JSON `parse_model_output` consumes). Latency = last assistant
-  timestamp minus the user record's timestamp.
-- No shared ID exists between these session-log files and
-  `eval_output/*.jsonl` — joining requires matching on content
-  (`commit_message` / diff text against `golden-set/*.json`'s
-  `commit_id`), not an ID lookup.
-- Where live tracing needs to be wired: `prompt_contract_layer.call_claude`
-  (currently a bare `subprocess.run(["claude", "-p", ...])`, no
-  instrumentation at all).
-
-**Two other things from today that are NOT written to any doc — only in
-this conversation's transcript.** If the user wants them preserved past
-this restart, they need to be asked for again or a doc written for them;
-flagging so they aren't silently lost:
-1. A full honest assessment of whether Tier-2 validator entries (01, 02,
-   04, 06, 17, 18) can get a genuine Tier-1 `enforce_deterministic_rules`
-   hard override — conclusion was mostly no (the ambiguity is language
-   judgment, not a checkable fact), with entry 17 flagged as a real but
-   high-false-positive-risk candidate (checked: 16 of 19 real golden
-   entries touch at least one file not named in their message, so a naive
-   "unexplained file touch" override would over-fire badly without a
-   maintained allowlist). Nothing was built — assessment only, per the
-   user's explicit "don't build anything yet."
-2. The full "what trace data already exists" inventory (this is what led
-   to today's Langfuse ask) — covered above under "Facts already gathered."
+**Known noise, not a bug:** three `json-parse-failure`-classified session
+log files exist from this session's own manual probing of
+`--output-format json`'s shape (throwaway prompts like "reply with
+exactly: OK") — correctly classified (they're not `{status, narrative}`
+JSON), but not real pipeline data. They were created *after* the 489-file
+backfill ran, so the imported historical data is unaffected. If
+`import_historical_traces.py --all` is ever re-run, it will now also
+pick up these 3 (and any other manual test calls made in the meantime)
+as `none`-golden-matched `json-parse-failure` entries — harmless (they
+land in the same place a real anomalous call would), just not
+meaningful. No action taken; noting so it isn't mistaken for a
+regression later.
 
 ---
 
@@ -178,13 +183,9 @@ flagging so they aren't silently lost:
 | Tier-2 → Tier-1 feasibility assessment (entries 01/02/04/06/17/18) | DONE, analysis only, nothing built (per instruction) — **not written to a doc**, only in conversation. See "not written to any doc" note above if needed again. |
 | Trace-data inventory (repo files vs. Claude Code's own session logs) | DONE — **not written to a doc**, only in conversation; key facts captured above under "Facts already gathered." |
 | JSON-parsing robustness fix (`parse_model_output` repair pass) | DONE — `bdcecd9` → merge `f25acc5`, pushed. `test_parse_model_output.py` new (7 real cases + guards). All 5 unit suites green. |
-| Langfuse self-hosted setup (4-part task: import 489 historical traces, live tracing wiring) | **BLOCKED, not started** — see "Immediate next step" above. Docker permission fix just applied; awaiting session restart to confirm it took effect. |
+| Langfuse self-hosted setup (4-part task: backfill 489 historical traces, live tracing wiring) | DONE — see session 7 above. Committed `248be54` on `langfuse-tracing`, merged `--no-ff` to `main`, pushed. All 5 unit suites still green (tracing is opt-in/best-effort, no test touches `call_claude`). |
 
 ## Open decisions for next session (in priority order)
-
-0. **Langfuse setup — see "Immediate next step" at the top of this file.**
-   This supersedes the rest of this list in priority; nothing below is
-   blocking, everything here is.
 
 1. **Entry 12 — a second, still-open negation-window gap.** Same class of
    bug as the hedge fix but different: `"doesn't"` sat 9 words before the
@@ -248,4 +249,8 @@ EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_golden_eval.py         # full
 python3 score_golden_eval.py                                              # score results.jsonl
 python3 score_golden_eval.py eval_output/results-prefix-baseline.jsonl    # score the pre-fix baseline
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_selfconsistency_eval.py  # 3x on unstable entries, 1x rest
+
+# Langfuse (needs the local stack running: `cd langfuse && docker compose up -d`)
+EVAL_TARGET_REPO=/home/rdeva/medrecord python3 import_historical_traces.py --dry-run  # preview, no push
+EVAL_TARGET_REPO=/home/rdeva/medrecord python3 import_historical_traces.py --all      # re-run full backfill (idempotent - trace id = session log filename)
 ```

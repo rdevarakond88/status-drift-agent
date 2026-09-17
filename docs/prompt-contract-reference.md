@@ -6,11 +6,13 @@
 
 ## The most important finding in this document — read this first
 
-**Not every rule that SAYS "status must be Flagged/Pending" actually enforces that in code.** Three rules (9, 12, 13) use the exact same imperative language as three others (11, 14, 15) — but only 11, 14, and 15 have a real code-level safety net behind them. Rules 9, 12, and 13 rely entirely on the AI choosing to comply, every single time.
+**Updated 2026-09-17 (Run 10):** rule 9 moved from unenforced to code-enforced (`bc4db67`, 2026-09-13) since this section was first written — the finding below described 9/12/13 as unenforced, but only **12 and 13** still are.
 
-**This directly explains the project's most persistent instability.** Entry 13's ongoing coin-flip between Pending and Flagged exists specifically because rule 9 (sweeping-claim → Flagged) and rule 13 (partial-completion → Pending) are BOTH unenforced — nothing in code ever makes either one actually happen. Compare that to entries 09, 14, and 19, which used to be just as unstable, and are now permanently fixed — precisely because their rules (15, 14, 11) got a matching code override.
+**Not every rule that SAYS "status must be Flagged/Pending" actually enforces that in code.** Two rules (12, 13) still use the exact same imperative language as four others (9, 11, 14, 15) — but only 9, 11, 14, and 15 have a real code-level safety net behind them. Rules 12 and 13 rely entirely on the AI choosing to comply, every single time.
 
-**The pattern to remember: a rule with "status must be X" in its wording is not the same as a rule that's guaranteed to produce X.** Only the code-enforced ones are guarantees.
+**This used to directly explain the project's most persistent instability, and no longer does.** Entry 13's old coin-flip between Pending and Flagged existed because rule 9 (sweeping-claim → Flagged) could fire on the same commit as rule 13 (partial-completion → Pending) with no stated precedence, and neither was code-enforced. Rule 9 becoming code-enforced didn't just close entry 15 — it also closed entry 13's instability in practice, because the fix is correctly gated on `claim_holds: False` (a claim actually disproved), not on `detected` alone. Entry 13's own sweeping-claim mention is `detected` but holds up (`claim_holds: True`), so rule 9 correctly never fires on it, and the two rules stopped colliding. Confirmed stable across Run 9 and Run 10 (`docs/eval-history.md`). Rule 13 itself is still not code-enforced — this is a resolved *symptom*, not a resolved *rule*.
+
+**The pattern to remember: a rule with "status must be X" in its wording is not the same as a rule that's guaranteed to produce X.** Only the code-enforced ones are guarantees. Rules 12 and 13 are the two rules left in that gap — worth watching if either one ever causes a real miss the way 9 did.
 
 ---
 
@@ -26,15 +28,15 @@
 | 6 | AI judgment only | Synthetic entry 20 |
 | 7 | AI judgment only (output format) | Not entry-driven |
 | 8 | AI judgment only | Synthetic entry 22 |
-| **9** | **AI judgment only — NOT code-enforced, despite "treat as a real, evidenced mismatch"** | Entry 15 (never actually fixed it — see below) |
+| 9 | Both — code hard-override, added `bc4db67` (2026-09-13), gated on `claim_holds: False` | Entry 15 (closed for real at Run 9) and, as a side effect, entry 13's instability |
 | 10 | AI judgment only | Entries 01 and 03 |
 | 11 | Both — code hard-override | Entry 19; retroactively also fixed entry 11's golden label |
 | **12** | **AI judgment only — NOT code-enforced, despite "status must be Flagged"** | Entry 12 |
-| **13** | **AI judgment only — NOT code-enforced, despite "status must be Pending"** | Entry 13 — still unresolved for exactly this reason |
+| **13** | **AI judgment only — NOT code-enforced, despite "status must be Pending"** | Entry 13 — no longer unstable in practice (see above), but still not a code guarantee |
 | 14 | Both — code hard-override | Entry 14 |
 | 15 | Both — code hard-override | Entry 09 |
 
-**Bolded rows are the three unenforced-but-imperative rules** — the ones worth remembering as the project's remaining real risk area.
+**Bolded rows are the two remaining unenforced-but-imperative rules** — the project's remaining real risk area, now that rule 9 has moved out of this category.
 
 ---
 
@@ -72,9 +74,9 @@ The AI is explicitly told to ignore this rule number — it's a placeholder. **F
 *"Never phrase anything as if you personally verified, ran, or confirmed something you didn't actually check — you only read a diff and a message, you didn't execute anything. Hedge honestly."*
 **Enforcement:** AI judgment only. Test case: synthetic entry 22 (the bare "QA verified" claim).
 
-### Rule 9 — Sweeping-claim verification ⚠️ unenforced
+### Rule 9 — Sweeping-claim verification
 *"When a commit makes a sweeping claim ('anywhere,' 'everywhere,' 'no longer exists') about specific text, a repo search has already been run — this is verified fact, not something to re-check. If the search shows the claim doesn't hold (`claim_holds: false`), treat that as a real mismatch under rule 3."*
-**Enforcement:** AI judgment only, despite instructing a Flagged-worthy outcome. **Never actually fixed entry 15** — its overclaim lives in diff/log content, not the commit message this rule scans.
+**Enforcement:** Both — code hard-override, added `bc4db67` (2026-09-13). Gated specifically on `claim_holds: False` — an actual disproved claim — not on `detected` alone, so a sweeping claim that's detected but still holds up (entry 13's "Six Agents" mention) correctly doesn't force anything. Closed entry 15 for real: first pass in 9 runs at Run 9, 3/3 stable at Run 10 (`docs/eval-history.md`).
 
 ### Rule 10 — PR-timing separation
 *"A PR's description describes the aggregate, final state as of merge time — not this individual commit's own point in time. Don't treat a PR-level claim as contradicting a narrower or earlier claim inside this commit purely because they differ. This isn't license to ignore PR claims entirely — if the PR's own claim doesn't hold up against the code, that's still a rule-3 mismatch."*
@@ -90,7 +92,7 @@ The AI is explicitly told to ignore this rule number — it's a placeholder. **F
 
 ### Rule 13 — Partial completion → Pending ⚠️ unenforced
 *"If a commit frames its content as multiple sub-items, and at least one is explicitly still open, the overall status must be Pending — even if everything else is done. One open sub-item is enough; don't average toward the majority. This is different from a single item just awaiting one verification step (which stays Code complete under rules 1-2)."*
-**Enforcement:** AI judgment only, despite "status must be Pending." **This is exactly why entry 13 remains unstable** — rule 9 and rule 13 both can fire on the same commit, neither is code-enforced, and there's no stated precedence between them.
+**Enforcement:** AI judgment only, despite "status must be Pending." **Used to be exactly why entry 13 was unstable** — rule 9 could fire on the same commit with no stated precedence, and neither was code-enforced. Rule 9 becoming code-enforced (correctly gated on `claim_holds: False`) means it no longer fires on entry 13 at all, so the collision stopped happening — entry 13 has been stable, plain `Pending`, across Runs 9 and 10. Rule 13 itself is still not code-enforced; this is a resolved symptom, not a resolved rule, and worth revisiting if a future commit exposes the gap differently.
 
 ### Rule 14 — Deterministic overclaim detection
 *"When a commit claims something was 'added'/'introduced'/'new,' this has already been checked against real git history in code. If detected, the named thing already existed — state the plain fact in your own words, calm tone, status Flagged."*
@@ -108,20 +110,23 @@ There's one more layer that isn't part of the prompt contract at all: **`status_
 
 **Full pipeline, three distinct enforcement mechanisms:**
 1. **SYSTEM_PROMPT rules** — instructions given to the AI before it answers (all 15 rules)
-2. **`enforce_deterministic_rules`** — code that runs immediately after, hard-overriding the status for rules 2 (partial), 4, 11, 14, 15
+2. **`enforce_deterministic_rules`** — code that runs immediately after, hard-overriding the status for rules 2 (partial), 4, 9, 11, 14, 15. Also returns the model's answer both before and after this stage (`raw_status`/`raw_narrative` vs. the final `status`/`narrative`), added Run 10 — the first point in the pipeline where it's possible to tell whether a rule actually changed anything or the model already agreed with it.
 3. **`status_consistency_validator`** — a separate, later pass that checks the AI's paragraph against itself, independent of rule numbers entirely
 
 ---
 
 ## What this document changes about your remaining priority list
 
-Entry 13's real fix isn't a new rule — it's **making rule 9 or rule 13 (or both) code-enforced**, the same way 11/14/15 already are, and/or explicitly stating which one wins when both fire. That's now the clearest, most precisely defined remaining gap in the whole project.
+This used to say entry 13's fix was making rule 9 code-enforced — **that's done** (`bc4db67`), and it closed both entry 15 and entry 13's instability. The remaining gap in this specific file is narrower now: rules 12 and 13 are still AI-judgment-only, worth revisiting only if either one causes a real, reproducible miss the way rule 9's absence did.
+
+The project's actual open findings right now live in `eval-v10-findings.md`, not in this rulebook — they're not prompt-contract gaps at all. Entry 03 is a bug in `status_consistency_validator.py` (the third enforcement stage, outside this file — see above), and entry 22 is a claim type (an unverifiable "QA verified") that none of the existing rules or checks are built to catch, which would need a new rule 16-style check, not a fix to an existing one.
 
 ---
 
 ## Related documents
 
 - `golden-set-reference.md` — the 23 entries these rules are tested against
-- `eval-history.md` — all 8 real eval runs, verified against git history
+- `eval-history.md` — all 10 real eval runs, verified against git history
 - `eval-v2-findings.md` — the separate, third enforcement stage's own history (negation-blindness arc; continued in `eval-v3-findings.md`, `eval-v4-findings.md`)
+- `eval-v10-findings.md` — the third enforcement stage's current open bug (validator verification-context carve-out unreliable by construction) and the unrelated entry-22 gap
 - `session-state.md` — current status and open decisions

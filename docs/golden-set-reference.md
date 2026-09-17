@@ -10,7 +10,7 @@
 |---|---|---|
 | 1 | Fixed login pointing to a dead server address | Code complete |
 | 2 | Swapped demo tunnel service; front-end follow-up still needed | Pending |
-| 3 | Fixed tunnel warning page; not yet tested on a real device | Pending |
+| 3 | Fixed tunnel warning page; not yet tested on a real device, which is a routine pending-verification step, not unfinished work (rule 2) | Code complete |
 | 4 | Built new doctor screen for cross-provider consent lookup | Code complete |
 | 5 | Added loading spinner to patient lookup | Code complete |
 | 6 | Softened "patient not found" error card styling | Code complete |
@@ -23,11 +23,11 @@
 
 | # | What happened | Status | Note |
 |---|---|---|---|
-| 11 | Reworked hook governance into 5 phases, undocumented but verified via diff | Code complete | |
-| 12 | Fixed startup deadlock; bundled an unrelated draft article | Code complete | Hygiene issue flagged separately, not a code problem |
+| 11 | Reworked hook governance into 5 phases; also deletes the superseded old hook file without mentioning the removal | Flagged | Golden label corrected from `Code complete` — the model's original `Flagged` (unexplained deletion, rule 11) was more defensible than the hand-written answer |
+| 12 | Fixed a permission check that blocked itself on session start; bundled an unrelated draft incident-report article into the same commit | Flagged | The fix itself is code complete and verified; flagged for bundling hygiene, not a correctness problem |
 | 13 | Governance audit — 2 items closed, 2 still open | Pending | |
-| 14 | Bundled release (OTP resend, API wiring, bug fixes) | Code complete | Eval found the model actually caught a real overclaim here — see `eval-history.md` |
-| 16 | Documentation-only log entry | No app behavior changed | |
+| 14 | Bundled release (OTP resend, API wiring, bug fixes) | Flagged | Golden label corrected from `Code complete` — the PR claims a resend button was "added," but the diff only changes an existing cooldown timer; a real, verified overclaim (rule 14) — see `eval-history.md` |
+| 16 | Documentation-only log entry, no app code touched | Code complete | |
 | 17 | Investigated a suspected bug, no code changed | Code complete | Eval revealed a genuine rule-wording gap — see `eval-history.md` |
 | 18 | Reverted a prior fix after its assumption proved wrong | Code complete | |
 | 19 | Removed a screen entirely, no reason given | Flagged | Missing AI-signature line + no stated reason — see `eval-history.md` |

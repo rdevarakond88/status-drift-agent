@@ -8,6 +8,118 @@ this one is the living pointer.
 
 ## Resuming from
 
+### Session 9 (2026-09-17) — eval-v10, Drift Trace dashboard, repo-wide consistency pass, LinkedIn write-up
+
+**Resume point:** everything from this session is merged to `main` and
+pushed (`f5c5751`), matching `origin/main`. No open branch, nothing
+pending. If continuing the eval work, start with the open decision below
+(what, if anything, to do about the validator's word-distance bug and the
+entry-22 gap). If continuing the portfolio/LinkedIn thread, the post is
+drafted and ready to post, and a private "Status-Drift-Agent Talking
+Points" Claude Doc exists as a FAQ companion (not in this repo,
+deliberately, per the user's instruction).
+
+**What happened, in order:**
+1. Resolved session 8's open decision: ran the full 23-entry eval fresh
+   (new script, `run_dashboard_eval.py`) instead of trusting the stale
+   2026-09-09 `results.jsonl`, with 3 independent runs on the 6
+   historically-variable entries (01, 03, 06, 09, 15, 17) to separate
+   genuine misses from one-off model wording.
+2. Added `raw_status`/`raw_narrative` capture to `generate_status_update`
+   (`prompt_contract_layer.py`) — the AI's answer before rule enforcement
+   had never been recorded anywhere before this; now every eval run
+   captures it automatically (flows through `run_golden_eval.py`'s
+   existing whole-dict write to `results.jsonl`, no other change needed).
+3. **Real finding, `docs/eval-v10-findings.md`:** 21/23. Entry 03's raw AI
+   answer was correct (`Code complete`) in all 3 runs, but
+   `status_consistency_validator` flipped it to `Pending` in 2 of 3 —
+   traced to the exact mechanism (a quote mark around `'tested'` broke a
+   verification-word set-membership check in one run; a one-word-too-far
+   distance missed it in another). Concluded this is a meaning-judgment
+   problem being approximated by word-distance over freely-generated
+   text, not fixable by widening a threshold — documented as open rather
+   than patched. Confirmed one-directional/safe:
+   `validate_status` can only ever move a status *toward* `Pending`,
+   never fabricate `Code complete` or clear a `Flagged`. Entry 22
+   (synthetic, unverifiable "QA verified" claim) also failed — a
+   distinct gap, no check built for it; confirmed persistent (also failed
+   at session 6's rule-9-confirmation run, a 3-way split with no
+   majority).
+4. Built `run_dashboard_eval.py` + `build_drift_trace.py` (checked in,
+   fully self-contained — the earlier scratchpad version depended on
+   reading another scratchpad file that wouldn't exist next session),
+   generating `eval_output/drift-trace.html`: a 4-stage trace (Layer 2
+   checks → AI raw read → rule enforcement → validator) for all 23
+   entries. Published as a Claude Artifact, shared publicly by the user
+   via its own share menu, linked from the README.
+5. **README overhaul**: the eval-results section was still describing
+   entries 13 and 15 as open problems from `eval-v6` — both had been
+   closed since rule 9 landed (session 6, `bc4db67`), pre-dating this
+   session but never reflected in the README. Replaced with the current,
+   real state (21/23, entries 03 and 22 open), documented rules
+   9/11/14/15 in the pipeline description (previously not mentioned at
+   all despite being the most interesting deterministic logic in the
+   project), added an Observability section explaining the
+   Langfuse-vs-Drift-Trace split (call-level cost/prompt visibility vs.
+   pipeline-decision visibility — deliberately not overlapping).
+6. Merged `eval-summary-line` → `main` `--no-ff` (`f5c5751`), pushed. All
+   5 unit suites green throughout, checked again post-merge.
+7. **User asked for a whole-repo consistency check — this surfaced real,
+   pre-existing staleness, not just this session's own gaps:**
+   - `docs/eval-history.md` stopped at Run 8 (2026-09-10). Added Run 9
+     (the rule-9 confirmation run, `961b61d`, previously undocumented in
+     this file even though the commit existed) and Run 10 (this
+     session), with full entry-by-entry table updates and a corrected
+     "where things stand" section (13 and 15 moved to closed; 03 and 22
+     are the real open items now).
+   - `docs/prompt-contract-reference.md` was written before rule 9
+     existed — it stated rule 9 was AI-judgment-only and named it as the
+     direct cause of entry 13's instability. Corrected throughout: rule 9
+     is code-enforced (`bc4db67`), and entry 13's instability resolved as
+     a side effect of that fix's correct gating (`claim_holds: False`,
+     not `detected` alone) rather than being fixed directly — rule 13
+     itself is still not code-enforced.
+   - `docs/golden-set-reference.md` had **five wrong status values**,
+     found by diffing every row against the actual `golden-set/*.json`
+     files rather than trusting the doc's own prose: entry 3 (said
+     `Pending`, actually `Code complete` — stale since the `eval-v5`
+     relabel), entries 11 and 14 (both said `Code complete`, actually
+     `Flagged` — stale since golden-label corrections that predate this
+     project's session-tracking entirely), entry 12 (said `Code
+     complete`, actually `Flagged`), entry 16 (said a non-canonical "No
+     app behavior changed" instead of `Code complete`). All fixed. This
+     is the one that most directly validates doing the check — this repo
+     had been citing wrong "correct answers" from its own answer key for
+     an unknown number of sessions before anyone noticed.
+8. LinkedIn post drafted and refined with the user via the
+   `linkedin-content-mentor` skill: corrected an early framing that would
+   have overstated technical depth (kept it at evaluation-design/judgment
+   altitude, not implementation detail, per the user's non-developer
+   identity guardrails), and corrected a misattribution — the user
+   follows Hamel Husain and Shreya Shankar's public writing/podcasts on
+   AI evals, not their paid Maven course, verified against their actual
+   published work (the "who validates the validators" parallel to entry
+   03's finding is genuine, checked against Shreya Shankar's real paper,
+   not assumed). Final post covers both open issues (03 and 22). A
+   private Claude Doc ("Status-Drift-Agent Talking Points") was created
+   as a FAQ/talking-points companion — deliberately not checked into this
+   repo, per the user's instruction.
+
+**Where things actually stand, cleanly, as of this session's end:**
+- `main` @ `f5c5751`, pushed, matches `origin/main`. Working tree clean.
+- All 5 AI-free unit suites green.
+- The golden-set answer key, eval history, and prompt-contract reference
+  docs are now verified accurate against source (git commits and the
+  actual `golden-set/*.json` files) — not just internally consistent with
+  each other, which is the check that was skipped before and let the
+  golden-set-reference errors survive undetected.
+- Two real, open pipeline issues remain, both documented rather than
+  quietly patched: entry 03 (validator word-distance bug,
+  `docs/eval-v10-findings.md`) and entry 22 (unverifiable-claim gap, no
+  check built yet).
+
+---
+
 ### Session 8 (2026-09-16) — Langfuse validator-visibility assessment + eval summary line
 
 **Resume point:** picking this back up fresh tomorrow. Nothing merged to
@@ -235,8 +347,27 @@ regression later.
 | Trace-data inventory (repo files vs. Claude Code's own session logs) | DONE — **not written to a doc**, only in conversation; key facts captured above under "Facts already gathered." |
 | JSON-parsing robustness fix (`parse_model_output` repair pass) | DONE — `bdcecd9` → merge `f25acc5`, pushed. `test_parse_model_output.py` new (7 real cases + guards). All 5 unit suites green. |
 | Langfuse self-hosted setup (4-part task: backfill 489 historical traces, live tracing wiring) | DONE — see session 7 above. Committed `248be54` on `langfuse-tracing`, merged `--no-ff` to `main`, pushed. All 5 unit suites still green (tracing is opt-in/best-effort, no test touches `call_claude`). |
+| `raw_status`/`raw_narrative` capture in `generate_status_update` | DONE — session 9, `1d92067`. Additive, all existing callers unaffected (dict-key access). |
+| Full 23-entry eval, session 9 ("v10") | DONE — **21/23**, misses 03 + 22, `docs/eval-v10-findings.md`. 6 variance-prone entries run 3x each. |
+| Rule-9 fix confirmed to also close entry 13's instability | CONFIRMED — session 9, via `docs/eval-history.md` Run 9/10 data. Not a new fix; a side effect of `bc4db67`'s correct `claim_holds` gating. |
+| `run_dashboard_eval.py` + `build_drift_trace.py` (Drift Trace dashboard, checked in) | DONE — session 9, `c4a512d`. Self-contained, no scratchpad dependency. Public artifact link in README. |
+| README overhaul (current eval state, rules 9/11/14/15 documented, Observability section) | DONE — session 9, `10233cb`. |
+| `docs/eval-history.md`, `docs/prompt-contract-reference.md`, `docs/golden-set-reference.md` corrected against source | DONE — session 9, prompted by a user-requested whole-repo consistency check. Golden-set-reference had 5 wrong status values (entries 3, 11, 12, 14, 16) — found by diffing against `golden-set/*.json` directly, not by trusting the doc. |
+| `eval-summary-line` branch merged to `main` | DONE — `--no-ff` merge `f5c5751`, pushed. All 5 unit suites green pre- and post-merge. |
+| LinkedIn post + "Status-Drift-Agent Talking Points" Claude Doc | DONE — session 9. Post drafted, refined (technical-depth framing, corrected a course-completion misattribution), covers both entry 03 and entry 22. Doc is a private FAQ companion, intentionally not in this repo. |
 
 ## Open decisions for next session (in priority order)
+
+**Current, as of session 9 (2026-09-17) — replaces the list below, which is now either resolved or superseded; kept underneath for history, not as live priorities.**
+
+1. **Entry 03 — the validator's word-distance bug (`docs/eval-v10-findings.md`).** Real, reproduced twice on identical input, precisely diagnosed (a quote mark and a one-word distance issue, two different runs, same root cause). Decision needed: leave documented as a known, safe (one-directional) soft spot, or build a model-based self-consistency check to replace `status_consistency_validator`'s word-matching (new AI call, new cost, new failure modes to characterize). Not decided — this is a real cost-vs-accuracy call for the architect, not a quick fix.
+
+2. **Entry 22 — unverifiable-claim gap.** No check exists for a "trust me, QA passed"-style claim with zero evidence. Confirmed persistent across two separate runs (session 6's rule-9-confirmation run, and this session's) — not a fluke. Would need a new check in the fetch layer (rule-16-shaped), not a fix to an existing one. Not started.
+
+3. **Portfolio thread, if picking that back up:** the LinkedIn post is drafted and ready to post as-is. The Talking Points Claude Doc is live and has one open comment thread (asking the user to confirm whether the "my role" section's phrasing sounds like their actual voice). The user separately mentioned a Notion page ("Medrecord AI") and a GitHub Pages portfolio site (`rdevarakond88.github.io`) as existing destinations — nothing done toward either yet; no decision made on whether this project should feed them too.
+
+<details>
+<summary>Superseded list from sessions 4–8 (kept for history only — see item above for current priorities)</summary>
 
 1. **Entry 12 — a second, still-open negation-window gap.** Same class of
    bug as the hedge fix but different: `"doesn't"` sat 9 words before the
@@ -285,7 +416,10 @@ regression later.
 6. **Synthetic entries (20–23)** get `sweeping_claim_check` from
    `run_golden_eval._synthetic_sweeping_claim_check`, which scans only the
    message. Not a gap today (no synthetic diff has absence-claim prose),
-   but the two code paths have diverged by one capability.
+   but the two code paths have diverged by one capability. **Still true
+   as of session 9** — not touched.
+
+</details>
 
 ## Re-run commands (for reference — a session can just run these)
 

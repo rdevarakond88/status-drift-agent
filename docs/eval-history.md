@@ -15,7 +15,7 @@ The labels "v1" through "v6" are informal, assigned after the fact in various fi
 
 ---
 
-## All 8 runs, at a glance
+## All 10 runs, at a glance
 
 | # | Label | Commit | Date | Pass rate | Methodology |
 |---|---|---|---|---|---|
@@ -27,6 +27,8 @@ The labels "v1" through "v6" are informal, assigned after the fact in various fi
 | 6 | "v4" (the only v4) | d9c0219 | 2026-09-09 | 20/23 | self-consistency |
 | 7 | "v5" | db6c7da | 2026-09-09 | 22/23 | self-consistency |
 | 8 | "v6" | 3e20099 | 2026-09-10 | 21/23 | self-consistency |
+| 9 | rule-9 confirmation | 961b61d | 2026-09-13 | 21/23 | self-consistency |
+| 10 | "v10" (Drift Trace dashboard) | d1811f0 | 2026-09-17 | 21/23 | self-consistency (3x on 01/03/06/09/15/17) |
 
 ---
 
@@ -112,6 +114,26 @@ The labels "v1" through "v6" are informal, assigned after the fact in various fi
 
 ---
 
+## Run 9 — 961b61d · 21/23 · rule-9 confirmation
+
+**Changed going in:** rule-9 hard override added (`bc4db67`) — forces `Flagged` when `sweeping_claim_check` finds a verified-false claim, gated on `claim_holds: False` specifically, not on `detected` alone.
+
+**Failed (2):** 05, 22
+
+**Why:** **entry 15 passes for the first time in 9 runs** — `Flagged`, matching golden, and this time it's a real code-level fix, not luck: the override forces it regardless of what the model says on its own. Entry 13 held 3/3 `Pending`, confirming it's unaffected by the new override (correctly gated on `claim_holds`, not `detected`). Entry 05 failed on an infra error (`ERROR`, transient `claude -p` issue that week), not a real regression. Entry 22 split three ways across its 3 runs (`Tested`, `Code complete`, `Flagged`) — no majority, genuinely unstable, unrelated to this change (`sweeping_claim_check.detected` confirmed `False`).
+
+---
+
+## Run 10 — d1811f0 · 21/23 · "v10" (Drift Trace dashboard)
+
+**Changed going in:** nothing to the pipeline itself — this run built `run_dashboard_eval.py` / `build_drift_trace.py` (the Drift Trace dashboard) and, in the course of building it, added `raw_status`/`raw_narrative` capture to `generate_status_update` so the model's answer *before* rule enforcement is visible for the first time. 6 entries with a history of instability (01, 03, 06, 09, 15, 17) run 3x independently each; the rest once.
+
+**Failed (2):** 03, 22
+
+**Why:** **entry 15 confirmed stable, 3/3 `Flagged`** — the rule-9 fix from Run 9 holds. Entry 13 back to a clean, single-run `Pending` — the rule-9-vs-rule-13 precedence gap that plagued runs 6–8 has not recurred since rule 9 was gated correctly. **Entry 03 is a newly-diagnosed, different problem, not a repeat of any earlier miss on this entry**: the model's raw answer was `Code complete` (correct) in all 3 runs, but `status_consistency_validator` flipped it to `Pending` in 2 of 3 — traced to the exact mechanism (a quote mark broke a verification-word match in one run; a one-word-too-far distance missed it in another). See `docs/eval-v10-findings.md` for the full trace. **Entry 22 fails again**, third time now (also unstable at Run 9) — an unverifiable "QA verified" claim with no test evidence, which none of the four deterministic checks are built to catch. Two consecutive runs (9 and 10) confirm this is a real, persistent gap, not one-off noise.
+
+---
+
 ## Why multi-run checking for unstable entries — the real term, and why it's legitimate
 
 **The technique:** for entries with a track record of flip-flopping, run the same commit through the AI 3 times instead of once, and take the majority answer. If there's no majority (e.g. 3 different answers), treat that as a signal the commit is genuinely too ambiguous for automation — route it for mandatory human review instead of trusting any single pass.
@@ -129,45 +151,45 @@ The labels "v1" through "v6" are informal, assigned after the fact in various fi
 
 ---
 
-## Entry-by-entry table — pass/fail across all 8 real runs
+## Entry-by-entry table — pass/fail across all 10 real runs
 
-P = Pass, F = Fail. Runs 6–8 use self-consistency (majority vote); runs 1–5 are single-pass — see the methodology caveat above before comparing across that line.
+P = Pass, F = Fail. Runs 6–10 use self-consistency (majority vote); runs 1–5 are single-pass — see the methodology caveat above before comparing across that line.
 
-| # | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | Notes |
-|---|---|---|---|---|---|---|---|---|---|
-| 01 | F | P | P | P | F | P | P | P | R5: same bug class as "not yet," different word ("still outstanding"). Fixed by the R6 verification carve-out, verified directly. |
-| 02 | F | P | P | P | P | P | P | P | R1: no rule existed yet for "still needs to happen" → Pending. |
-| 03 | F | P | P | P | F | F | P | P | Never really a model problem — golden label was inconsistent with 7 similar entries. Corrected at R7. |
-| 04 | P | F | P | F | P | P | P | P | Regressed twice (R2, R4) for two different validator reasons, both since fixed. |
-| 05 | P | P | P | P | P | P | P | P | Always stable. |
-| 06 | P | P | P | P | F | P | P | P | Same bug class as 01, fixed same way at R6. |
-| 07 | P | P | P | P | P | P | P | P | Always stable. |
-| 08 | P | P | P | P | P | P | P | P | Always stable. |
-| 09 | P | P | P | P | F | F | P (luck) | P (fixed) | R7's pass was NOT a fix — sampling luck. Only R8's rule-15 override makes this genuinely reliable. |
-| 10 | P | P | P | P | P | P | P | P | Always stable. |
-| 11 | P | F | P | P | P | P | P | P | Golden label corrected before R3; model had already found a real gap. |
-| 12 | F | F | F | P | P | P | P | P | First real fix landed at R4 (bundling-hygiene rule); stable since. |
-| 13 | F | F | F | F | P | P | P | F | Still genuinely unresolved — the rule-9-vs-rule-13 precedence gap. R7's pass was the lucky side of a real coin-flip, not a fix. |
-| 14 | F | F | F | F | P | P | P | P | Fully closed at R7 — deterministic override, verified even against a deliberately wrong model status. |
-| 15 | F | F | F | F | F | F | F | F | Never once passed, across all 8 runs. The deepest, still-unsolved gap — sweeping claim lives in diff/log content, not the commit message. |
-| 16 | P | P | P | P | P | P | P | P | Always stable. |
-| 17 | F | F | P | P | P | P | P | P | Fixed by the negation guard at R3. |
-| 18 | P | F | P | P | P | P | P | P | Negation-guard casualty at R2, recovered R3. |
-| 19 | F | P | P | P | P | P | P | P | Fixed by the unexplained-deletion rule at R2. |
-| 20 | P | P | P | P | P | P | P | P | Always stable. |
-| 21 | P | P | P | P | P | P | P | P | Always stable. |
-| 22 | P | F | F | F | P | P | P | P | Recovered at R5; not attributable to any specific targeted fix at that point. |
-| 23 | P | P | P | P | P | P | P | P | Always stable. |
+| # | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 | R9 | R10 | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 01 | F | P | P | P | F | P | P | P | P | P | R5: same bug class as "not yet," different word ("still outstanding"). Fixed by the R6 verification carve-out, verified directly. 3/3 stable at R10. |
+| 02 | F | P | P | P | P | P | P | P | P | P | R1: no rule existed yet for "still needs to happen" → Pending. |
+| 03 | F | P | P | P | F | F | P | P | P | F | Corrected at R7 (golden label was wrong, not the model). **New, different failure at R10**: the validator's own text-match bug, not a repeat of the golden-label issue — see `eval-v10-findings.md`. |
+| 04 | P | F | P | F | P | P | P | P | P | P | Regressed twice (R2, R4) for two different validator reasons, both since fixed. |
+| 05 | P | P | P | P | P | P | P | P | F | P | R9's fail was a transient `claude -p` infra error (`ERROR`), not a real regression — passed cleanly at R10. |
+| 06 | P | P | P | P | F | P | P | P | P | P | Same bug class as 01, fixed same way at R6. 3/3 stable at R10. |
+| 07 | P | P | P | P | P | P | P | P | P | P | Always stable. |
+| 08 | P | P | P | P | P | P | P | P | P | P | Always stable. |
+| 09 | P | P | P | P | F | F | P (luck) | P (fixed) | P | P | R7's pass was NOT a fix — sampling luck. R8's rule-15 override made it reliable; 3/3 stable at R9 and R10. |
+| 10 | P | P | P | P | P | P | P | P | P | P | Always stable. |
+| 11 | P | F | P | P | P | P | P | P | P | P | Golden label corrected before R3; model had already found a real gap. |
+| 12 | F | F | F | P | P | P | P | P | P | P | First real fix landed at R4 (bundling-hygiene rule); stable since. |
+| 13 | F | F | F | F | P | P | P | F | P | P | R8's fail was the rule-9-vs-rule-13 precedence gap. **Not recurred since** — 3/3 Pending at R9, clean Pending at R10, both after rule 9 landed correctly gated on `claim_holds`. |
+| 14 | F | F | F | F | P | P | P | P | P | P | Fully closed at R7 — deterministic override, verified even against a deliberately wrong model status. |
+| 15 | F | F | F | F | F | F | F | F | P | P | **Closed for real at R9** — the rule-9 hard override (`bc4db67`) forces `Flagged` regardless of the model's own answer. 3/3 stable at R10. First pass in 9 runs, and it's a verified fix, not luck. |
+| 16 | P | P | P | P | P | P | P | P | P | P | Always stable. |
+| 17 | F | F | P | P | P | P | P | P | P | P | Fixed by the negation guard at R3. 3/3 stable at R10. |
+| 18 | P | F | P | P | P | P | P | P | P | P | Negation-guard casualty at R2, recovered R3. |
+| 19 | F | P | P | P | P | P | P | P | P | P | Fixed by the unexplained-deletion rule at R2. |
+| 20 | P | P | P | P | P | P | P | P | P | P | Always stable. |
+| 21 | P | P | P | P | P | P | P | P | P | P | Always stable. |
+| 22 | P | F | F | F | P | P | P | P | F | F | Recovered at R5 by chance, not a targeted fix — and it shows: **failed again at R9 (3-way split) and R10**. Genuinely unresolved: an unverifiable "QA verified" claim with no test evidence, which no current check catches. |
+| 23 | P | P | P | P | P | P | P | P | P | P | Always stable. |
 
 ---
 
-## Where things stand as of Run 8 (the latest)
+## Where things stand as of Run 10 (the latest)
 
-**Genuinely, permanently closed:** 01, 02, 04, 06, 09, 11, 12, 14, 17, 18, 19, 22 — each has either always been stable, or was closed by a real, verified deterministic fix (not luck).
+**Genuinely, permanently closed:** 01, 02, 04, 05, 06, 09, 11, 12, 13, 14, 15, 17, 18, 19, 23 — each has either always been stable, or was closed by a real, verified deterministic fix (not luck). **15 and 13 moved into this list at R9/R10** — the rule-9 override (`bc4db67`) closed 15 for real (first pass in 9 runs) and the same fix's correct gating means 13 hasn't recurred since.
 
 **Still open, real work remaining:**
-- **Entry 15** — never once passed in 8 runs. The deepest structural gap: no automated way yet to verify a claim against content outside the specific commit's own diff/message.
-- **Entry 13** — the rule-9-vs-rule-13 precedence gap. Now precisely diagnosed (a stale phrase quoted inside the commit's own audit-log prose, not a live reference) but not yet fixed.
+- **Entry 03** — a newly-diagnosed problem, unrelated to its earlier (already-fixed) golden-label issue. `status_consistency_validator`'s verification-context carve-out is a word-distance heuristic over freely-generated text, and it's unreliable by construction — traced exactly why in `docs/eval-v10-findings.md`. Confirmed one-directional (can only push toward `Pending`, never fabricate `Code complete`), so it's a visible, safe-direction soft spot, not a silent one.
+- **Entry 22** — passed R5–R8 by chance (never a targeted fix), then failed the last two runs checked (R9, R10). An unverifiable "QA verified" claim with zero test evidence attached — none of the four deterministic checks are built to catch this claim type. A distinct gap from entry 03, not the same root cause.
 
 **Legend — what the bracketed words mean when they show up in narrative sections above:**
 - **Fail (regressed)** — passed on the run before, fails now. Something made it worse.
@@ -180,5 +202,6 @@ P = Pass, F = Fail. Runs 6–8 use self-consistency (majority vote); runs 1–5 
 ## Related documents
 
 - `eval-v2-findings.md` — the arc of the Status Consistency Validator's negation-blindness breaks and how each was fixed (continued in `eval-v3-findings.md`, `eval-v4-findings.md`)
+- `eval-v10-findings.md` — Run 10's headline finding: the validator's verification-context carve-out is unreliable by construction, traced against the real narratives
 - `golden-set-reference.md` — the 23 entries themselves
 - `prompt-contract-reference.md` — the full, current 15-rule reference, including the code-enforcement-gap finding

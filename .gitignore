@@ -4,3 +4,9 @@ checkpoints.json
 output/
 langfuse/
 .venv-langfuse/
+
+# Session-continuity working notes for Claude Code - useful locally (see
+# CLAUDE.md), not relevant to anyone viewing this repo's actual work.
+# Untracked, not deleted - already-pushed history still has old versions.
+docs/session-state.md
+docs/session-handoff-*.md

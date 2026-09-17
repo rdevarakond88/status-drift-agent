@@ -1,0 +1,1031 @@
+<title>Drift Trace</title>
+<style>
+  :root{
+    --bg:#f6f8f6; --surface:#ffffff; --surface-2:#eef2ef; --border:#dbe3dd;
+    --text:#101a15; --muted:#5b6d64; --faint:#8a9a91;
+    --accent:#1f8f78; --accent-soft:#e3f3ee;
+    --complete:#2f9e5b; --complete-soft:#e5f6ea;
+    --pending:#b8801f; --pending-soft:#faf0dc;
+    --flagged:#c9503f; --flagged-soft:#fbe8e4;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'Sora', system-ui, -apple-system, sans-serif;
+    --match:#2f9e5b; --mismatch:#c9503f;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0d1210; --surface:#131a17; --surface-2:#182019; --border:#263029;
+      --text:#e7ede9; --muted:#8ea296; --faint:#5e6f67;
+      --accent:#5fd0b8; --accent-soft:#16302a;
+      --complete:#5cc584; --complete-soft:#122a1c;
+      --pending:#e0b25a; --pending-soft:#2e2413;
+      --flagged:#ea7565; --flagged-soft:#2e1815;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0d1210; --surface:#131a17; --surface-2:#182019; --border:#263029;
+    --text:#e7ede9; --muted:#8ea296; --faint:#5e6f67;
+    --accent:#5fd0b8; --accent-soft:#16302a;
+    --complete:#5cc584; --complete-soft:#122a1c;
+    --pending:#e0b25a; --pending-soft:#2e2413;
+    --flagged:#ea7565; --flagged-soft:#2e1815;
+  }
+  * { box-sizing: border-box; }
+  body{ background: var(--bg); color: var(--text); font-family: var(--sans); padding-inline: 16px; padding-block: 28px 60px; line-height: 1.5; }
+  .wrap{ max-width: 920px; margin: 0 auto; }
+  .eyebrow{ font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin: 0 0 8px; }
+  h1{ font-size: clamp(26px, 5vw, 34px); margin: 0 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+  .sub{ color: var(--muted); font-size: 14.5px; max-width: 66ch; margin: 0 0 22px; }
+  .banner{ background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px; padding: 14px 16px; font-size: 13px; color: var(--text); margin-bottom: 20px; }
+  .scoreboard{ display:flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+  .score-item{ font-family: var(--mono); font-size: 12px; }
+  .score-num{ font-size: 16px; font-weight: 700; color: var(--complete); font-variant-numeric: tabular-nums; }
+  .section-label{ font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; padding-top: 4px; }
+  .sha{ font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+  .summary{ font-size: 14.5px; margin: 0; color: var(--text); }
+  .verdicts{ display:flex; align-items:center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+  .pill{ font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .pill.complete{ background: var(--complete-soft); color: var(--complete); }
+  .pill.pending{ background: var(--pending-soft); color: var(--pending); }
+  .pill.flagged{ background: var(--flagged-soft); color: var(--flagged); }
+  .arrow{ color: var(--faint); font-size: 13px; }
+  .verdict-tag{ font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 8px; border-radius: 6px; font-weight: 700; }
+  .verdict-tag.match{ color: var(--match); background: color-mix(in srgb, var(--match) 14%, transparent); }
+  .verdict-tag.mismatch{ color: var(--mismatch); background: color-mix(in srgb, var(--mismatch) 14%, transparent); }
+  .verdict-tag.same{ color: var(--faint); background: var(--surface-2); }
+  .stages{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); }
+  @media (max-width: 640px){ .stages{ grid-template-columns: 1fr; } }
+  .stage{ background: var(--surface); padding: 14px 16px; min-width: 0; }
+  .stage-title{ font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; display: flex; align-items: center; gap: 6px; }
+  .stage-num{ display:inline-flex; align-items:center; justify-content:center; width: 16px; height: 16px; border-radius: 50%; background: var(--surface-2); color: var(--faint); font-size: 9px; }
+  .chip-row{ display:flex; flex-direction: column; gap: 6px; }
+  .chip{ display:flex; align-items: baseline; gap: 7px; font-size: 12.5px; padding: 6px 8px; border-radius: 7px; background: var(--surface-2); }
+  .chip.fired{ background: var(--pending-soft); }
+  .chip.fired.hard{ background: var(--flagged-soft); }
+  .chip-dot{ width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex-shrink: 0; margin-top: 3px; }
+  .chip.fired .chip-dot{ background: var(--pending); }
+  .chip.fired.hard .chip-dot{ background: var(--flagged); }
+  .chip-name{ font-family: var(--mono); color: var(--text); font-size: 12px; }
+  .chip-note{ color: var(--muted); font-size: 11.5px; }
+  details.narrative{ font-size: 12.5px; color: var(--muted); }
+  details.narrative summary{ cursor: pointer; font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 0.02em; list-style: none; }
+  details.narrative summary::-webkit-details-marker{ display:none; }
+  details.narrative summary::before{ content: "\25B8 "; }
+  details.narrative[open] summary::before{ content: "\25BE "; }
+  details.narrative p{ margin: 8px 0 0; line-height: 1.55; }
+  .rule-flow{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom: 10px; }
+  .no-fire{ font-size: 12.5px; color: var(--muted); font-style: italic; }
+  .matched{ font-family: var(--mono); font-size: 11px; color: var(--pending); background: var(--pending-soft); padding: 2px 7px; border-radius: 6px; display:inline-block; margin-top: 6px; }
+  .note{ font-size: 12px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .note b{ color: var(--text); }
+  .note.watch{ border-top-color: color-mix(in srgb, var(--pending) 40%, transparent); }
+  code.k{ font-family: var(--mono); background: var(--surface-2); padding: 1px 4px; border-radius: 4px; font-size: 11px; }
+  footer{ margin-top: 30px; font-size: 12px; color: var(--faint); font-family: var(--mono); }
+  .entry{ background: var(--surface); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 10px; overflow: hidden; }
+  .entry > summary{ cursor: pointer; list-style: none; padding: 14px 18px; }
+  .entry > summary::-webkit-details-marker{ display:none; }
+  .entry > summary::before{ content: "\25B8"; color: var(--faint); display:inline-block; width: 14px; }
+  .entry[open] > summary::before{ content: "\25BE"; }
+  .entry-head{ display:inline-flex; width: calc(100% - 16px); flex-wrap: wrap; gap: 10px 16px; align-items: flex-start; justify-content: space-between; }
+  .entry-head-left{ min-width: 0; flex: 1 1 320px; }
+  .entry .stages{ border-top: 1px solid var(--border); }
+  .entry .note, .entry > .note{ margin: 10px 18px 4px; }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<div class="wrap">
+  <p class="eyebrow">status-drift-agent &middot; pipeline trace</p>
+  <h1>Drift Trace</h1>
+  <p class="sub">All 23 golden-set entries, four stages each: the deterministic checks that feed the model, the model's own raw read, the code-level rule enforcement that can override it, and the text-match validator that runs last. Click any row to expand its full trace.</p>
+
+  <div class="banner">
+    <b>Generated by build_drift_trace.py from eval_output/results-dashboard-full.jsonl.</b> Regenerate both with <code class="k">run_dashboard_eval.py</code> + <code class="k">build_drift_trace.py</code> whenever the pipeline changes, then republish this file to keep the shared link current.
+    <div class="scoreboard">
+      <span class="score-item"><span class="score-num">21 / 23</span> match golden</span>
+      <span class="score-item"><span class="score-num">35</span> total model calls</span>
+      <span class="score-item"><span class="score-num">2 / 35</span> validator fired</span>
+      <span class="score-item"><span class="score-num">1</span> entries unstable across runs</span>
+    </div>
+  </div>
+
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">fee9cd5 &middot; golden/01</p>
+          <p class="summary">Doctor login was silently failing because the app&#x27;s OTP calls were still pointed at an old, dead server address. This fix repoints those calls at the correct, currently-running server.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          <span class="verdict-tag match">3&times; run &middot; stable</span>
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative (run 1)</summary>
+          <p>This commit (story D1) removes a hardcoded, dead Render.com server address from the app&#x27;s login code and instead has it read the live tunnel address from a shared config file, so that phone number verification calls reach the correct local backend instead of a server that no longer exists; the code change matches exactly what the commit message describes, updating all four related login functions consistently. Alongside the code fix, the commit also updates the project&#x27;s routine tracking notes to reflect that the next step is on-device testing of this fix, which is normal project bookkeeping rather than unrelated content. Because the commit&#x27;s own message and notes point to device verification as still outstanding rather than already completed, this is best described as code complete rather than tested; a related pull request bundling this and other work claims the overall feature was verified end-to-end on a device, but that description covers the combined state of everything in that pull request at the time it was merged, not necessarily this one commit by itself, so it isn&#x27;t treated as a contradiction. No story was left unattributed, no files were unexpectedly deleted, and no other claims in the message appear unsupported by the actual code change.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire in any of 3 runs</p>
+      </div>
+    </div>
+    <p class="note" style="border-top:none;padding-top:0;margin-top:2px;">Raw AI answer across 3 independent runs: Code complete, Code complete, Code complete. Final: Code complete, Code complete, Code complete.</p>
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">6a19a8f &middot; golden/02</p>
+          <p class="summary">The temporary internet address used to expose the local demo server was switched to a different free tunneling service, after the original plan (a paid custom domain) was rejected. The backend side of this switch is done and confirmed reachable; a matching change is still needed on the app&#x27;s side before the switch is fully usable end-to-end.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill pending">Pending</span><span class="arrow">&rarr;</span><span class="pill pending">Pending</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill pending">Pending</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit switches the local demo backend&#x27;s tunnel setup away from a paid Cloudflare option to a free, fixed ngrok web address, after figuring out that an earlier problem blamed on a broken secure connection was actually just ngrok&#x27;s free-tier warning page, which can be bypassed by sending one extra header on requests; the commit updates the startup script accordingly and the message describes a curl-based check of the backend and tunnel together returning a successful response once that header is included. Alongside the script change, it also updates some internal bookkeeping files (an ownership registry, an action log, and the project&#x27;s status notes) that track which part of the system is allowed to edit which files, which is routine housekeeping rather than app functionality. Importantly, the commit&#x27;s own message explicitly states that a matching change is still needed on the app side (adding that same header when the app calls the backend) and that this remaining piece has been handed off to a separate work session rather than completed here; because the commit itself frames the tunnel switch as having one part done and one part still outstanding, the overall status should be treated as not yet finished rather than fully complete or verified as a whole. No specific project story or ticket is linked to this work, but the commit&#x27;s own message and changes make its purpose clear enough on their own, so that absence isn&#x27;t a concern by itself. Separately, a related pull request description claims the whole feature was verified end-to-end on a real device, but since that description reflects the combined state of everything bundled into that pull request at the time it was merged rather than this one commit alone, it isn&#x27;t being counted as a conflict with this commit&#x27;s narrower, curl-only verification claim.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill pending">Pending</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">5572d95 &middot; golden/03</p>
+          <p class="summary">Every API call the app makes was being blocked by a &#x27;click through this warning&#x27; interstitial page inserted by the free tunneling service. Fixed by adding one header to the single function all network requests already funnel through, so the fix applies everywhere at once instead of needing to be added call-by-call.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill pending">Pending</span>
+          <span class="verdict-tag mismatch">mismatch</span>
+          <span class="verdict-tag mismatch">3&times; run &middot; flips</span>
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative (run 1)</summary>
+          <p>This commit adds one header (a flag that tells ngrok not to show its free-tier browser warning page) inside the app&#x27;s shared network-request function, pinnedFetch, which the commit message says is the single place every API call in the app passes through — so fixing it there once is meant to cover all the callers that use it. The stated goal is to stop that ngrok warning page from being mistaken for a broken connection, which the message says had previously been misdiagnosed as a TLS/certificate problem. According to the commit message, this was checked with a curl command and a small Node-based test that mimics the app&#x27;s fallback network path, and no new type-checking errors were introduced, but the message is explicit that the fix has not yet been tried on an actual phone and is being handed off for that on-device check next. Because that device check is called out as still outstanding rather than done, this reads as code complete rather than fully tested — the automated/manual smoke checks performed don&#x27;t substitute for the on-device verification the commit itself says is still needed. No specific story or ticket is attached to this commit, but the commit&#x27;s message and the accompanying project notes make its purpose and scope clear enough on their own that this absence isn&#x27;t a concern here.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire" style="font-style:normal;color:var(--muted);margin-bottom:8px;">fired in 2 of 3 runs:</p><div class="rule-flow"><span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill pending">Pending</span><span class="matched" style="margin-top:0">&quot;outstanding&quot;</span></div><div class="rule-flow"><span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill pending">Pending</span><span class="matched" style="margin-top:0">&quot;outstanding&quot;, &quot;handed off&quot;</span></div>
+      </div>
+    </div>
+    <p class="note" style="border-top:none;padding-top:0;margin-top:2px;">Raw AI answer across 3 independent runs: Code complete, Code complete, Code complete. Final: Pending, Pending, Code complete.</p>
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">56af773 &middot; golden/04</p>
+          <p class="summary">Added a brand-new screen for doctors: enter a patient&#x27;s phone number, and the app shows either &#x27;patient found&#x27; with a request-access option, or &#x27;not found&#x27; with a retry/register path. This is a mockup: no real lookup happens yet, all data is hardcoded.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit adds a new mockup screen for a doctor-initiated, cross-provider consent lookup flow (tracked as story D7), and the diff matches what the message describes: a new ConsentLookupScreen file implementing three distinct states (an idle numeric-entry view with a how-it-works hint, a found-patient card with a request-consent action, and a not-found error card with register/retry options), a new route wired into the app&#x27;s main navigation file, and a small developer-only shortcut link added to the existing patient search screen so the new screen is reachable during testing. A project tracking document was also updated to log this as a completed mockup step and to point the next session toward a persona-based review, which is routine bookkeeping rather than unrelated content. The work is explicitly labeled in its own code comments as a mockup with no real backend calls, and neither the commit message nor the diff claims that functional or on-device testing was performed, so this is best described as code complete rather than tested. A related pull request record is attached, but its description covers a much larger, separate merge (backend/infrastructure and governance changes) at merge time rather than this specific commit, so it isn&#x27;t treated as a conflicting claim here. The commit&#x27;s own story attribution (D7) is stated directly in its message, and no unexplained file deletions, unrelated bundled content, or overstated claims were found in this diff.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">6f43663 &middot; golden/05</p>
+          <p class="summary">On the new lookup screen, tapping &#x27;Look Up Patient&#x27; now shows a brief loading spinner before the result appears, instead of resolving instantly.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit, attributed to story D7, adds a loading state to the mockup Consent Lookup screen doctors use to search for a patient by mobile number: instead of the lookup firing automatically on the tenth digit, the doctor now taps a new &quot;Look Up Patient&quot; button, which shows a spinner card for about 1.2 seconds (a simulated delay, not a real network call), locks the number pad while that spinner is up, and gives the number field a dashed blue border during the wait. Comparing the commit message against the diff, every claim checks out — the button, the timing, the locked keypad, and the border styling are all present in the code as described, and the file comment itself notes this remains a mockup with no real API calls. Because the commit doesn&#x27;t claim any testing was performed (and none would be expected for a mockup like this), it&#x27;s best described as code complete rather than tested; no separate testing evidence exists to point to. No further story lookup was needed since the commit message already names story D7 directly.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">802e444 &middot; golden/06</p>
+          <p class="summary">The &#x27;patient not found&#x27; error card on the lookup screen was toned down visually: it now uses a white background with a red outline and red text, instead of a solid red fill.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          <span class="verdict-tag match">3&times; run &middot; stable</span>
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative (run 1)</summary>
+          <p>This commit, tagged to story D7, makes a small visual-only change to the doctor consent lookup screen: it softens the error and &quot;not found&quot; states so they show a white background with a red border and red text, instead of solid red or light-red fill. Looking at the diff, every change lines up with what the commit message describes — background colors were removed or switched to white/surface, border colors and widths were adjusted to a red outline, and the icon text color was switched from white to red, so the described &quot;white background, red border plus text only&quot; styling is what the code actually does. This is a self-contained style tweak with no testing claims made in the commit message, so there&#x27;s nothing to verify as tested one way or the other; it&#x27;s ready for review but should be considered code complete rather than verified through testing. No unrelated content, unexplained file deletions, or overstated claims were found in this change.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire in any of 3 runs</p>
+      </div>
+    </div>
+    <p class="note" style="border-top:none;padding-top:0;margin-top:2px;">Raw AI answer across 3 independent runs: Code complete, Code complete, Code complete. Final: Code complete, Code complete, Code complete.</p>
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">52fb363 &middot; golden/07</p>
+          <p class="summary">When a patient is found, the result card now also shows the date of their last visit under their name, in addition to just their name.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit (tagged to story D7) adds a &#x27;Last visit&#x27; line under the patient&#x27;s name on the consent lookup screen when a patient is found, and it also updates a mock last-visit date used for that display; the diff matches exactly what the commit message describes, so there&#x27;s no mismatch to flag here. No testing evidence is included in this commit itself, so it&#x27;s being marked as code complete rather than tested. This commit is one of many bundled into PR #7, which separately claims broader work (like backend migration and on-device verification) was completed by merge time, but that verification was about unrelated backend changes, not this specific UI addition, so it isn&#x27;t being counted as evidence that this particular change was tested. No other issues were found: no unexplained file deletions, no unrelated content bundled in, and no overclaimed &#x27;new&#x27; feature language to flag.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">24ef723 &middot; golden/08</p>
+          <p class="summary">The the access-request button used to only appear after a patient was found. It&#x27;s now always visible above the keypad, but greyed out and disabled until a patient is actually found.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit (tagged to story D7) moves the &#x27;Request Access&#x27; button in the doctor&#x27;s patient-lookup screen from inside the found-patient card to a persistent position above the keypad, and the diff backs this up: the old button and its styles were removed from the card, and a new button was added outside it that is greyed out and disabled unless a patient has been found, turning blue and enabled only in the found state, with the SMS-verification hint now only shown alongside the enabled button. This change is part of a larger pull request whose own description mentions device verification and typechecking, but those claims cover the PR&#x27;s broader backend and governance work as a whole at merge time, not this specific button change, so there&#x27;s no contradiction to call out here. No testing of this particular UI change is mentioned or shown in this commit, so it&#x27;s best described as code complete rather than tested. A story was already attributed (D7), so no further story-identification work is needed here.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">ce67468 &middot; golden/09</p>
+          <p class="summary">Added a small info icon next to the access-request button. Tapping it opens a short explanation of how the SMS-based verification process works.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          <span class="verdict-tag match">3&times; run &middot; stable</span>
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip fired hard"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">fired — undisclosed removal</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative (run 1)</summary>
+          <p>This commit adds an info icon with a toggleable tooltip next to the Request Access button on the consent lookup screen, matching what&#x27;s described for story D7, and the change is scoped to a single UI file that lines up with what the commit message describes. However, in making this change the diff also deletes a line of text that was previously shown to users on this screen (&quot;An SMS will be sent to the patient&#x27;s registered number for verification.&quot;), and the commit message only frames the work as an addition of the icon and tooltip, without mentioning that this existing on-screen text was removed. This is a routine traceability gap worth a developer&#x27;s eyes, not a sign of a deeper problem; the removed text may simply have been superseded by the new tooltip copy, but that isn&#x27;t stated anywhere in the commit, so it&#x27;s being flagged for visibility rather than assumed. No testing evidence is included in this commit&#x27;s own message or diff, and this review is based only on reading the diff and message, not on running the app.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">Armed: rule 15 (ui_copy_removal_check). The model already said Flagged on its own — confirms, doesn&#x27;t change anything.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire in any of 3 runs</p>
+      </div>
+    </div>
+    <p class="note" style="border-top:none;padding-top:0;margin-top:2px;">Raw AI answer across 3 independent runs: Flagged, Flagged, Flagged. Final: Flagged, Flagged, Flagged.</p>
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">af0360e &middot; golden/10</p>
+          <p class="summary">Swapped the placeholder test names shown in the lookup mockup for different sample names. Cosmetic only.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit updates mock/sample data on the doctor&#x27;s consent lookup screen for story D7, swapping the placeholder patient from Meena Krishnaswamy to Priya Sharma (with a new age and initials) and adding a new mock field for the last-seen doctor, Dr. Suresh Mehta. The on-screen &quot;Last seen at&quot; section was also adjusted so it now displays the doctor&#x27;s name on its own line above the clinic name, rather than just the clinic. The diff matches exactly what the commit message describes, so there&#x27;s no gap between the stated intent and the actual change, no unexplained file deletions, and no unrelated content mixed in. This is a self-contained, low-risk data/display tweak with no claim of testing in the message or diff, so it&#x27;s best classified as code complete rather than tested; the commit sits inside a much larger pull request (#7) about backend and governance changes, but that PR&#x27;s broader claims describe the aggregate state of everything bundled together at merge time, not this individual mock-data commit, so there&#x27;s no real conflict to flag there. The story reference D7 was already attributed from the commit message itself, so no guessing was needed there.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">9cfe9eb &middot; golden/11</p>
+          <p class="summary">Not an app change: this rebuilt the internal automated rulebook that controls which AI development agent is allowed to touch which files, replacing a single check with a five-step process that runs at different points in every session.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip fired hard"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">fired — 1 file(s)</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit adds a five-phase hook-based governance system for the MedRecord project&#x27;s Claude sessions — things like agent declaration checks, file-ownership rules, a rework-loop gate, and centralized event logging — along with the supporting settings and state files, and the work reads as a self-contained infrastructure/tooling change rather than something tied to a specific product feature, so it&#x27;s reasonable that no user story is attached to it; none appears to be needed here. One item does need a developer&#x27;s attention for traceability, though: the commit deletes the older check-agent-declared.sh hook file entirely (its logic appears to have been folded into the new agent-gate.sh), but the commit message never mentions this removal, so it&#x27;s worth a quick look to confirm that was intentional. Separately, one of the new files (the session-start hook) includes its own note that a piece of its behavior has a known compatibility issue in some versions and asks for manual verification by opening a fresh session, so that part isn&#x27;t confirmed working yet either. Because of the unexplained file deletion, this commit is being flagged for a quick developer review rather than marked simply complete.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">Armed: rule 11 (unexplained_deletions). The model already said Flagged on its own — confirms, doesn&#x27;t change anything.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">aa4f769 &middot; golden/12</p>
+          <p class="summary">Not an app change: fixes a bug where the very first automated permission check of a new development session would block itself, plus adds a written incident report explaining what happened.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit fixes a real bug in the project&#x27;s AI-agent governance system: two safety scripts both check the same file write, but only one of them had an exception for creating the initial agent-declaration marker file, which meant a brand-new session could get locked out before any agent could even declare itself. The diff backs up the commit message here — it adds the same three-line exemption that the other script already had, and the message&#x27;s description of the problem and fix matches what the code shows, though the claimed verification (a simulated cold start plus a blocked bypass attempt) is only reflected as log entries in the diff, not something independently confirmed in this review. The issue is that the commit also adds a full standalone write-up of the incident, styled and framed as an article meant for outside readers (it&#x27;s literally named as a LinkedIn piece) rather than routine project documentation like a test file or a short tracking note — that&#x27;s a different kind of content than the code fix itself, and bundling it into the same commit makes the change harder to trace cleanly, so it&#x27;s worth splitting into a separate commit going forward. No specific product story or issue is attached to this commit, but since it&#x27;s a self-contained infrastructure fix with a clear purpose on its own, that absence isn&#x27;t a problem by itself. Because of the unrelated article bundled in with the fix, this commit is being flagged for a developer&#x27;s attention, in the same routine, unalarmed way any traceability gap would be — not because anything looks broken.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">2dab6c7 &middot; golden/13</p>
+          <p class="summary">Not an app change: an audit of the internal agent-permission rules that closes two confirmed issues, corrects an earlier commit&#x27;s wrong claim about how the rules work, and logs two new open questions that need a human decision rather than a code fix.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill pending">Pending</span><span class="arrow">&rarr;</span><span class="pill pending">Pending</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip fired"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">fired — claim holds</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill pending">Pending</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit is a governance and documentation audit for the project&#x27;s internal agent-permission system, not a change to the application itself, and it doesn&#x27;t tie back to any tracked product story, but its purpose and scope are clear enough from the message and diff on their own that no story attribution is needed. Within this single commit, several distinct items are bundled together with different completion states: two issues (a missing Builder Agent permission and a stale document header) are closed and the diff backs up both of those changes, and an earlier incorrect note about a file location being permanently locked down is corrected, with the commit describing a real test write that was done to confirm the correction (that test itself isn&#x27;t independently verifiable from this diff, but the accompanying log entries are consistent with it). However, the same commit also logs two new items that are explicitly left open and waiting on a human decision rather than resolved here: a cosmetic false-positive in a permission-check script, and a mismatch between what one role is technically allowed to edit versus what its own instructions say it should avoid. Because the commit itself frames its work as a mixed batch with at least one piece still open and unresolved, the overall status is Pending rather than fully complete, even though the individual closed items look consistent with what the diff shows.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill pending">Pending</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">PR-6 (merge cb66d392) &middot; golden/14</p>
+          <p class="summary">A bundled release merging 28 commits: two screens switched from fake demo data to the real server, four integration bugs fixed, a &#x27;resend code&#x27; button added to both login screens after a 30-second wait, and a backend rule added so patients can&#x27;t change their own phone number.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip fired hard"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">fired — verified false</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit merges PR #6 into main, bundling several pre-pilot fixes: wiring the patient visit-detail and profile screens to the real backend API instead of mock data, fixing four integration bugs found in earlier testing (doctor-created patients being unable to log in, visits not appearing in the patient timeline, and consent grants/revokes not syncing between the doctor and patient views), adding a backend guard that blocks changes to a patient&#x27;s mobile number, and adding an OTP resend button with a cooldown timer. The diff backs up most of these claims - the patient screens are visibly rewired to call live endpoints, the consent and patient-sync fixes have matching code changes, and the mobile-number guard is added to the profile update route. Two things don&#x27;t line up, though. First, the commit and PR description describe OTP resend as something newly added to the login screens, but the diff only changes an already-existing resend cooldown timer from 45 seconds to 30 seconds - the resend feature itself has existed in this codebase since an earlier commit, so calling it newly added overstates what this commit actually did. Second, alongside the code changes and routine tracking-log updates, this commit also adds a lengthy reflective write-up in the lessons file (&#x27;Why Human Oversight Is Non-Negotiable&#x27;) that is explicitly framed as a record for a broader audience thinking about AI-driven development generally, rather than as engineering documentation of the fix itself - that&#x27;s a different kind of content bundled in with the code changes, and splitting it out would keep traceability cleaner. The story this work maps to was already identified upstream, so no guessing was needed there. Because of the overstated resend claim and the bundled write-up, this is being flagged for a developer&#x27;s attention rather than marked as straightforwardly complete; nothing here was run or executed to check that any of it actually works - this assessment is based only on reading the commit message, PR description, and diff.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">Armed: rule 14 (overclaim_check). The model already said Flagged on its own — confirms, doesn&#x27;t change anything.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">6aa36a6 &middot; golden/15</p>
+          <p class="summary">Not itself an app change: a routine check found that the main branch was still pointing at a dead server address two months after that had already been fixed elsewhere, so this merges the fix into main.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          <span class="verdict-tag match">3&times; run &middot; stable</span>
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip fired hard"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">fired — claim fails</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative (run 1)</summary>
+          <p>This commit updates the project&#x27;s internal tracking log and status document to record that pull request #7 was merged, bringing the main branch back in sync with the development branch so it now reflects the Render hosting cleanup, the switch to a local backend, and earlier governance fixes. No application code is touched here, only a log file and a status doc, so this is record-keeping rather than a functional change. The commit&#x27;s own notes claim that after the merge, a search confirmed the old &#x27;onrender.com&#x27; address no longer appears in main&#x27;s src/api folder, but an actual check of the repository shows that text is still present in that very folder, inside code comments in a file called pinnedFetch.ts that reference Render&#x27;s security certificate, plus in a number of other documentation and review files elsewhere in the project. Because that specific &#x27;no longer appears&#x27; claim doesn&#x27;t hold up against what&#x27;s actually in the repository, this commit is being flagged for a developer to take a second look rather than marked as cleanly complete. Separately, no specific product story or ticket is attached to this commit, but that&#x27;s expected here and not a concern on its own, since the commit is a self-contained project-management action, merging a stale branch, whose purpose is clear from its own message and changes.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">Armed: rule 9 (sweeping_claim_check). The model already said Flagged on its own — confirms, doesn&#x27;t change anything.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire in any of 3 runs</p>
+      </div>
+    </div>
+    <p class="note" style="border-top:none;padding-top:0;margin-top:2px;">Raw AI answer across 3 independent runs: Flagged, Flagged, Flagged. Final: Flagged, Flagged, Flagged.</p>
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">91b2e6e &middot; golden/16</p>
+          <p class="summary">Not an app change: a record-keeping commit documenting that a related change was made outside the normal development process, plus routine log cleanup.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit is a project-management logging update, not application code: it adds a note to the project&#x27;s status doc explaining that a separate commit (made and pushed outside a Claude Code session) removed an unused, unrouted screen file from the dev branch, and it also checks in some routine tracking-log entries that had been sitting uncommitted from an earlier session. The diff matches what the message describes — the status doc gets the new out-of-band-change note, and the log file gets the corresponding new entries — so there&#x27;s no mismatch between the stated intent and the actual changes. No story or ticket was attached to this commit, but none was needed: it&#x27;s a self-contained documentation and housekeeping action whose purpose is clear on its own. Because it only touches documentation and log files rather than product code, there&#x27;s nothing here to functionally test, so this is best described as complete as written rather than tested or still pending.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">afce46a &middot; golden/17</p>
+          <p class="summary">Not an app change: investigated a suspected gap in the internal permission-checking rules, ran through several test scenarios, and concluded the existing behavior already handles it correctly, so no fix was made.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          <span class="verdict-tag match">3&times; run &middot; stable</span>
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative (run 1)</summary>
+          <p>This commit closes out governance backlog item #3 in the medrecord project, marking it as verified with no code fix needed. Per the commit message, two possible fixes were considered and rejected, and instead the author replayed the original incident plus four extra edge cases against the existing check logic in a disposable scratch copy outside the real project files, finding the existing logic already handles the scenario correctly; the diff backs this up, showing only an activity log, an ownership-registry entry, and the main project status document being updated, with no application code touched, which lines up with the message&#x27;s claim that nothing needed to be fixed. Because this is a documentation and process update rather than application code, it isn&#x27;t a candidate for a tested/not-tested code verification either way. No product story or ticket is attached to this commit, but that&#x27;s expected and not a gap: the message and diff make clear on their own that this is a self-contained governance decision, not work tied to a product feature, so nothing further is needed to explain its purpose. Overall the work looks complete and consistent with what the commit describes it did.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire in any of 3 runs</p>
+      </div>
+    </div>
+    <p class="note" style="border-top:none;padding-top:0;margin-top:2px;">Raw AI answer across 3 independent runs: Code complete, Code complete, Code complete. Final: Code complete, Code complete, Code complete.</p>
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">a84d816 &middot; golden/18</p>
+          <p class="summary">Not an app change: undoes part of an earlier commit after discovering that commit&#x27;s justification was factually wrong, then applies a narrower, correct fix in its place.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill complete">Code complete</span><span class="arrow">&rarr;</span><span class="pill complete">Code complete</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Code complete</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit is a same-day correction to a governance/documentation change in the project&#x27;s agent-management system (no application code is touched). A prior commit had restricted a permissions file so that only the PM agent could edit two contract/spec documents, based on an audit note that the Backend agent had never actually used its edit access to those files; this commit reports that checking the project&#x27;s git history turned up an earlier commit where the Backend agent had, in fact, made a legitimate, additive edit to one of those documents. Based on that finding, this commit reverts the permissions file back to allowing both agents to edit those documents, and instead tightens the wording of the Backend agent&#x27;s own instructions so it can add new documentation for things it has just built but cannot redefine or remove existing entries. It also updates two supporting documents to record the correction and why it was made. Everything the commit message describes lines up with what&#x27;s actually in the diff, and no files were deleted without explanation, so nothing here looks inconsistent or overstated; note that no product story/ticket is attached to this commit, but since it&#x27;s a self-contained governance correction with a clear rationale spelled out in its own message and files, that appears intentional rather than a gap. Since this is a documentation/process-only change rather than application code, formal testing doesn&#x27;t apply here, so this is best described as complete work rather than tested or pending.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Code complete</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">b3383fa &middot; golden/19</p>
+          <p class="summary">A previously added &#x27;Upcoming Appointments&#x27; screen for patients was removed entirely: a clean, complete deletion with nothing left behind.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip fired hard"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">fired — 1 file(s)</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit is a full revert of an earlier change (referred to by its commit ID), undoing the static mockup version of the Upcoming Appointments screen for patients, and its only effect is deleting the file PatientAppointmentsScreen.tsx entirely, about 290 lines of screen layout and mock sample data. It&#x27;s tied to story P9 as expected. However, this is flagged for a routine traceability reason: the commit message explains that it&#x27;s reverting a prior commit but never names the specific file being removed, so the deletion isn&#x27;t explicitly called out in the message itself, which is worth a developer&#x27;s eyes even though the reason for the removal (undoing a mockup) is reasonably clear from context. No testing claims are made or evidenced here, and nothing in the diff suggests any code beyond this one file was affected.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">Armed: rule 11 (unexplained_deletions). The model already said Flagged on its own — confirms, doesn&#x27;t change anything.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">synthetic-001 &middot; golden/20</p>
+          <p class="summary">Constructed example, not a real commit from the target repo, used to test how the status-translation agent handles a commit with almost no usable metadata: message is just &#x27;fix bug,&#x27; branch is &#x27;quick-fix,&#x27; no linked issue, no agent tag, no body.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit&#x27;s message just says &quot;fix bug,&quot; with no ticket or story linked to it, and the change itself touches two unrelated-looking settings: it raises how many times a retry function will attempt an action from three to five, and it raises a maximum item limit from fifty to one hundred. Because the message doesn&#x27;t explain what problem either of these changes is meant to solve, and there&#x27;s no other context (no linked story, no PR description) to fill that gap, it&#x27;s not possible to determine the actual intent or connect this work to a specific story from the information available. Per our process, this needs a developer or TPM to weigh in on both what this commit was actually meant to fix and which story or ticket it belongs to, so flagging it for that input rather than guessing at a purpose.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">synthetic-002 &middot; golden/21</p>
+          <p class="summary">Constructed example, not a real commit from the target repo, tests optimistic self-reporting. A retry step was added for when the connection drops mid-sync. The commit message claims this fixes &#x27;all edge cases,&#x27; but the actual change doesn&#x27;t touch the separate offline-queue scenario that&#x27;s also handled elsewhere in the codebase.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit changes the sync worker so that if the network request to sync an item fails outright (a dropped connection), it now waits briefly and retries once before giving up and marking the item as failed; if the response comes back but isn&#x27;t successful, it still fails immediately as before. The commit message says the sync bug is fixed with &#x27;all edge cases handled now,&#x27; but the diff only shows this one specific scenario — a single retry after a dropped connection — being addressed, with no evidence in the code of other edge cases being identified or covered, so that broader claim outpaces what the change actually does. No project story or ticket is attached to this commit, but the change itself is narrow and self-explanatory enough that a story isn&#x27;t needed to understand its purpose. Because the commit describes its scope more broadly than the diff supports, this is flagged so a developer can confirm whether the phrase should be scaled back or whether other edge cases were in fact handled elsewhere and just aren&#x27;t visible in this diff.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">synthetic-003 &middot; golden/22</p>
+          <p class="summary">Constructed example, not a real commit from the target repo, tests template/boilerplate messaging. A UI component was updated to match a design spec change. The commit message also claims &#x27;QA verified,&#x27; but no test files changed and no CI run is linked to this commit.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill complete">Tested</span>
+          <span class="verdict-tag mismatch">mismatch</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill complete">Tested</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit made a small visual styling update to the patient Profile screen, adjusting the header&#x27;s padding, background color, and title font size to match a design specification, and the commit message states that this change was QA verified. The diff is consistent with what the message describes: a straightforward style tweak to a UI component, with nothing in the code contradicting the claim. No story or ticket was attributed to this commit, but the change is self-contained and its purpose is clear from the message and diff alone, so no story linkage was needed here. Since the commit itself explicitly states QA verification was completed (not just queued or partially checked), this is being marked as tested, though note that this status reflects the commit&#x27;s own stated claim rather than something independently executed or observed here.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill complete">Tested</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <details class="entry">
+    <summary>
+      <div class="entry-head">
+        <div class="entry-head-left">
+          <p class="sha">synthetic-004 &middot; golden/23</p>
+          <p class="summary">Constructed example, not a real commit from the target repo, tests handling of AI-authored commits. A coding agent assigned the story directly refactored the auth module, claiming it was a pure performance improvement with no behavioral change and that all existing tests pass. The actual diff modifies a conditional inside the permission-check function: a logic change, not just a performance one.</p>
+        </div>
+        <div class="verdicts">
+          <span class="pill flagged">Flagged</span><span class="arrow">&rarr;</span><span class="pill flagged">Flagged</span>
+          <span class="verdict-tag match">match</span>
+          
+        </div>
+      </div>
+    </summary>
+    <div class="stages">
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">1</span>Layer 2 checks</p>
+        <div class="chip-row"><div class="chip"><span class="chip-dot"></span><span class="chip-name">sweeping_claim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">overclaim_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">ui_copy_removal_check</span><span class="chip-note">clean</span></div><div class="chip"><span class="chip-dot"></span><span class="chip-name">unexplained_deletions</span><span class="chip-note">none</span></div></div>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">2</span>AI raw read</p>
+        <span class="pill flagged">Flagged</span>
+        <details class="narrative">
+          <summary>full narrative</summary>
+          <p>This commit touches the authorization middleware for the app&#x27;s backend, changing the condition that decides whether a request is allowed through from requiring both a doctor role AND ownership of the resource, to now requiring only one or the other, using an &#x27;or&#x27; instead of an &#x27;and&#x27; in the code&#x27;s decision logic. That is a real change in how access is granted, not a performance-only tweak, so it directly contradicts the commit message&#x27;s claim of &#x27;no behavioral change,&#x27; and this is a genuine mismatch between what the message says and what the diff shows rather than something to read past. The message also states all existing tests pass, but no test file changes or test output are included in this diff for me to check that claim against, so I can&#x27;t confirm testing occurred from what was provided. No specific story or ticket was attached to this commit, but the diff and message are clear enough about the change itself (an authorization check in the auth middleware) that this isn&#x27;t the reason for flagging; the mismatch on behavioral impact is. Given the unexplained scope difference between the stated intent and the actual code change, this should go back to a developer to confirm whether the logic change was intentional and, if so, to correct the commit message and get it properly tested before treating it as complete.</p>
+        </details>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">3</span>Rule enforcement</p>
+        <div class="rule-flow"><span class="pill flagged">Flagged</span><span class="verdict-tag same">no override</span></div>
+        <p class="note">No override rule armed this run — none of the four checks fired.</p>
+      </div>
+      <div class="stage">
+        <p class="stage-title"><span class="stage-num">4</span>Validator</p>
+        <p class="no-fire">did not fire</p>
+      </div>
+    </div>
+    
+  </details>
+
+  <footer>eval_output/results-dashboard-full.jsonl &middot; regenerate with run_dashboard_eval.py + build_drift_trace.py</footer>
+</div>

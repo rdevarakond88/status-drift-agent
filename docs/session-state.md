@@ -304,4 +304,11 @@ EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_selfconsistency_eval.py  # 3x
 # Langfuse (needs the local stack running: `cd langfuse && docker compose up -d`)
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 import_historical_traces.py --dry-run  # preview, no push
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 import_historical_traces.py --all      # re-run full backfill (idempotent - trace id = session log filename)
+
+# Drift Trace dashboard (public artifact linked from the README) - regenerate
+# whenever pipeline behavior changes, so the shared link doesn't go stale.
+# Republishing to the existing artifact URL is a manual Claude Code step
+# (Artifact tool, action publish, same url) - no script does that part.
+EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_dashboard_eval.py   # ~35 claude -p calls, ~20-35 min
+python3 build_drift_trace.py                                          # -> eval_output/drift-trace.html
 ```

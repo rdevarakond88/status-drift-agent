@@ -8,6 +8,57 @@ this one is the living pointer.
 
 ## Resuming from
 
+### Session 8 (2026-09-16) — Langfuse validator-visibility assessment + eval summary line
+
+**Resume point:** picking this back up fresh tomorrow. Nothing merged to
+`main` this session. Start with the open decision below (fresh eval run
+vs. existing `results.jsonl` for a portfolio dashboard) before building
+anything.
+
+**What happened:** user asked whether `status_consistency_validator.py`'s
+decision (fired / matched phrase / pre- and post-validator status) should
+be made visible in Langfuse, since only the AI-call step is traced today
+and the validator step runs after it as a black box. Investigated the
+actual call path (`call_claude`'s `trace_id` is generated and consumed
+entirely inside `_trace_live_call` and never returned to
+`generate_status_update` or its callers) and the actual usage pattern
+(`run_golden_eval.py` calls `validate_status` directly after
+`generate_status_update`, outside any traced scope). Conclusion given to
+the user: skip Langfuse instrumentation for now — entry 13's
+rule-9-vs-13 precedence gap is the real open priority, not this; nesting
+a span or patching the trace output both require threading `trace_id`
+out of `call_claude`, which is real plumbing, not a toggle; and the data
+already exists locally — `run_golden_eval.py` already writes
+`consistency_correction` (`original_status`, `matched_phrases`) into
+`eval_output/results.jsonl`, and `score_golden_eval.py` already prints it
+per row.
+
+**Small change made:** `score_golden_eval.py` now also prints an
+end-of-run summary block — how many entries the validator corrected and
+which ones — on top of the existing per-row correction column. Committed
+on branch `eval-summary-line` (`28203f3`), **not merged to `main`, not
+pushed** (small WIP branch, user asked to wind down before deciding next
+steps).
+
+**Where it turned:** the user's actual goal is broader than eval
+convenience — they want this captured in a way that keeps the portfolio
+story complete (per this repo's "Positioning" objective in
+`/home/rdeva/CLAUDE.md`), not just a terminal print. Landed on wanting an
+HTML dashboard (viewable like Langfuse's UI) showing the full pipeline:
+the Layer 2 checks that fed the AI, the AI's raw answer, and the Layer 3
+validator's before/after decision. Not yet built.
+
+**Open decision to resolve first, tomorrow:** before building that
+dashboard, decide whether to (a) re-run the full golden eval fresh
+(~10–20 min, 23 `claude -p` calls) so the dashboard reflects current
+pipeline behavior, or (b) build it against the `eval_output/results.jsonl`
+already on disk, which has not been confirmed current against the latest
+validator/rule fixes (e.g. it's unclear whether it postdates the entry-13
+rule-9 override). Leaning towards (a) for something meant to represent
+real, current work, but this is the user's call to make first.
+
+---
+
 ### Session 7 (2026-09-16) — Langfuse tracing, all 4 parts done
 
 **Resume point:** nothing blocking. The Langfuse task from this session
@@ -253,4 +304,11 @@ EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_selfconsistency_eval.py  # 3x
 # Langfuse (needs the local stack running: `cd langfuse && docker compose up -d`)
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 import_historical_traces.py --dry-run  # preview, no push
 EVAL_TARGET_REPO=/home/rdeva/medrecord python3 import_historical_traces.py --all      # re-run full backfill (idempotent - trace id = session log filename)
+
+# Drift Trace dashboard (public artifact linked from the README) - regenerate
+# whenever pipeline behavior changes, so the shared link doesn't go stale.
+# Republishing to the existing artifact URL is a manual Claude Code step
+# (Artifact tool, action publish, same url) - no script does that part.
+EVAL_TARGET_REPO=/home/rdeva/medrecord python3 run_dashboard_eval.py   # ~35 claude -p calls, ~20-35 min
+python3 build_drift_trace.py                                          # -> eval_output/drift-trace.html
 ```

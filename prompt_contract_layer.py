@@ -431,6 +431,8 @@ def generate_status_update(record):
         "status": status,
         "narrative": narrative,
         "completion": "can't compute completion",
+        "raw_status": parsed["status"],
+        "raw_narrative": parsed["narrative"],
     }
 
 

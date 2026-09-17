@@ -36,12 +36,25 @@ Four stages, currently split across three files:
    description) against what the diff actually shows, and produce a status
    plus a plain-language narrative. This is the only stage that's genuinely
    AI judgment; everything else is deterministic.
-3. **Validator** (also `prompt_contract_layer.py`): enforces the
-   mechanical parts of the contract in code rather than trusting the model
-   to self-police. Status must be one of exactly four allowed values, a
-   locked follow-up question gets appended whenever status is "Code
-   complete," "Tested" is hard-blocked when the diff never touched app
-   code, and malformed model output is rejected outright.
+3. **Rule enforcement** (`enforce_deterministic_rules`, also
+   `prompt_contract_layer.py`): forces the model's answer to `Flagged` in
+   four specific cases where the fetch layer already has a verified,
+   checkable fact rather than trusting the model to weigh it on its own:
+   an unexplained file deletion (rule 11), a verified overclaim — a
+   message says a feature was "added" but git history shows it already
+   existed (rule 14), an undisclosed removal of on-screen text (rule 15),
+   or a sweeping claim ("no longer appears anywhere") that a repo-wide
+   search has actually disproved (rule 9 — gated on the claim failing,
+   not merely being present, so a claim that holds up under the same
+   search is left alone). Also enforces the non-override parts of the
+   contract: status must be one of exactly four allowed values, a locked
+   follow-up question gets appended whenever status is "Code complete,"
+   "Tested" is hard-blocked when the diff never touched app code, and
+   malformed model output is rejected outright. Returns the model's
+   answer both before and after this stage runs (`raw_status` /
+   `raw_narrative` vs. the final `status` / `narrative`), so it's possible
+   to tell whether a rule actually changed anything or the model already
+   agreed with it — see the Drift Trace dashboard below.
 4. **Status Consistency Validator** (`status_consistency_validator.py`):
    a separate, AI-free pass over the model's own generated paragraph.
    Scans it for a fixed list of "still outstanding" phrases and
@@ -73,16 +86,18 @@ service names, and internal branded UI copy have also been generalized in
 the golden set and eval narratives, since they're specific enough to
 identify the private codebase even without exposing its code directly.
 
-Current result: **21 of 23** golden entries match exactly on status, 2
-don't (`docs/eval-v6-findings.md`). That run used self-consistency
-checking — 3 runs and a majority vote on the 8 entries with a history of
-flipping run-to-run, 1 run on the rest — rather than a single run per
-entry, since earlier rounds showed run-to-run model variance larger than
-the changes being measured. It peaked at 22/23 in v5; v6 added a
-deterministic check that fixed one entry (09) by construction while a
-second entry (13) fell back to the wrong side of a long-standing
-run-to-run coin-flip the earlier score had been riding. It's up from an
-original 14/23
+Current result (`docs/eval-v10-findings.md`, 2026-09-17): **21 of 23**
+golden entries match exactly on status. That run used 3 independent runs
+on the 6 entries with a history of flipping run-to-run (01, 03, 06, 09,
+15, 17), 1 run on the rest, specifically so a mismatch can be labeled a
+genuine miss instead of one lucky/unlucky sample. Every full trace —
+which of the four fetch-layer checks fired, the model's raw answer before
+rule enforcement, whether a rule changed it, and whether the validator
+did — is browsable in the **[Drift Trace dashboard](https://claude.ai/artifact/1VKJvjMPu99P18CWC6ujgX)**
+(generated 2026-09-17; regenerate with `run_dashboard_eval.py` +
+`build_drift_trace.py`, see `docs/session-state.md`).
+
+It's up from an original 14/23
 (`docs/disagreements.md`) after several rounds of changes documented in
 `docs/eval-v2-findings.md` and `docs/eval-v3-findings.md`: a hard block on
 claiming "Tested" for docs/logs/config-only commits, verifying sweeping
@@ -122,16 +137,51 @@ the fetch layer detects it from the diff and a code-level rule forces
 (`test_ui_copy_removal_check.py`); and entry 09's golden label corrected
 from `Code complete` to `Flagged` to match.
 
-Still open, and documented rather than papered over: one sweeping claim
-(15) lives in diff/log content rather than the commit message, outside
-what the current sweeping-claim check reaches; and case 13 is genuinely
-unstable run-to-run (v4: 2/3 `Pending`, v5: 3/3 `Pending`, v6: 2/3
-`Flagged`) because `sweeping_claim_check` fires on it — "Six Agents" still
-appears in the commit's own audit-log prose — pulling the model toward
-`Flagged` under rule 9, while rule 13's open-sub-items reasoning pulls
-toward `Pending`, and the contract states no precedence between the two.
-The v5 score of 22/23 was riding the lucky side of that coin-flip;
-resolving 13 needs a precedence decision, not another run.
+Since v6: the sweeping-claim trigger was taught to also scan a commit's
+own added prose, not just its message, and a third deterministic check,
+rule 9, forces `Flagged` when a sweeping claim is actually verified false
+against the repo (gated on the claim failing, not merely being present —
+entry 13's "Six Agents" claim is detected but holds up, and stays
+`Pending` correctly). That closed the entry-15 gap for real, in code, not
+just by relabeling — entry 15 has been `Flagged` 6/6 across the sessions
+since, and entry 13 stable (`Pending`, matching golden) across this
+session's full run plus every prior repeat check.
+
+Still open, per `docs/eval-v10-findings.md`: **entry 03** — the model's
+raw answer is correct (`Code complete`) in every run, but
+`status_consistency_validator`'s "is this a real problem or a routine
+pending-verification mention" check is a hand-written word-distance
+heuristic over freely-generated prose, and it flipped a correct answer to
+`Pending` in 2 of 3 independent runs on wording that meant the same thing
+each time. Traced to the exact mechanism (a quote mark around one word
+broke a set-membership check in one run; a one-word-too-far distance
+missed it in another) — not fixed, because widening the distance
+threshold would catch this specific phrasing and miss the next one; this
+class of judgment probably needs the model to self-check rather than a
+fixed rule. The failure is one-directional and safe: this validator can
+only ever push a status toward `Pending`, never fabricate `Code complete`
+or silently clear a `Flagged`, so it produces visible over-caution, not a
+misleading result. Separately, **entry 22** (synthetic) — a commit claims
+"QA verified" with no test files or CI run linked; none of the four
+deterministic checks are built to catch an unverifiable process claim
+like that, so the model took it at face value. A distinct, real gap with
+no check built for it yet.
+
+## Observability
+
+Every real `claude -p` call in this pipeline is traced to a self-hosted
+[Langfuse](https://github.com/langfuse/langfuse) instance: 489 historical
+calls were backfilled from this repo's own session logs with their
+original timestamps, and every live call since is traced automatically
+(best-effort — tracing failures never block the pipeline). That covers
+cost, latency, and the exact prompt/response for the AI step, but it has
+no visibility into the fetch-layer checks, rule enforcement, or the
+validator, since those aren't AI calls. The Drift Trace dashboard above
+covers the other side: not what a call cost, but why the pipeline landed
+on a given answer across all four stages. The two are meant to be
+complementary, not overlapping — the dashboard is for "why did we get
+this status," Langfuse is for "how much did this cost and what exactly
+did the model see."
 
 ## Status
 
